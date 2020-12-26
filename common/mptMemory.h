@@ -27,7 +27,12 @@
 
 #include <string.h>
 
-
+#if defined(__clang__) && __cplusplus >= 201703L && __clang_major__ < 6
+// This is a minimal workaround for clang 5.0 with missing std::byte type
+namespace std {
+enum class byte : unsigned char {};
+}
+#endif
 
 OPENMPT_NAMESPACE_BEGIN
 
