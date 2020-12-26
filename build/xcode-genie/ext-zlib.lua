@@ -4,7 +4,7 @@
   language "C"
   location ( "../../build/" .. mpt_projectpathname .. "/ext" )
   mpt_projectname = "zlib"
-  dofile "../../build/xcode-genie/genie-defaults-LIBorDLL.lua"
+  dofile "../../build/xcode-genie/genie-defaults-LIB.lua"
   dofile "../../build/xcode-genie/genie-defaults.lua"
   targetname "openmpt-zlib"
   includedirs { "../../include/zlib" }
@@ -40,3 +40,5 @@
   }
 
   configuration {}
+  buildoptions { "-fembed-bitcode" }
+

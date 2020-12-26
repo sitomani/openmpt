@@ -5,7 +5,8 @@
   location ( "../../build/" .. mpt_projectpathname )
   vpaths { ["*"] = "../../" }
   mpt_projectname = "libopenmpt"
-  dofile "../../build/xcode-genie/genie-defaults-LIBorDLL.lua"
+
+  dofile "../../build/xcode-genie/genie-defaults-LIB.lua"
   dofile "../../build/xcode-genie/genie-defaults.lua"
   local extincludedirs = {
    "../../include",
@@ -54,8 +55,10 @@
    "../../libopenmpt/libopenmpt_impl.cpp",
   }
 	configuration {}
-
+  buildoptions { "-std=c++17", "-fembed-bitcode"}
+  options { "XcodeLibrarySchemes" }
   defines { "LIBOPENMPT_BUILD" }
+
   links {
    "mpg123",
    "vorbis",

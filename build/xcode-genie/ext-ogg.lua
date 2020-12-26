@@ -4,7 +4,7 @@
   language "C"
   location ( "../../build/" .. mpt_projectpathname .. "/ext" )
   mpt_projectname = "ogg"
-  dofile "../../build/xcode-genie/genie-defaults-LIBorDLL.lua"
+  dofile "../../build/xcode-genie/genie-defaults-LIB.lua"
   dofile "../../build/xcode-genie/genie-defaults.lua"
   targetname "openmpt-ogg"
   includedirs { "../../include/ogg/include" }
@@ -15,3 +15,4 @@
    "../../include/ogg/src/framing.c",
   }
   configuration {}
+  buildoptions { "-fembed-bitcode" }

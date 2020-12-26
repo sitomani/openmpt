@@ -4,7 +4,7 @@
   language "C"
   location ( "../../build/" .. mpt_projectpathname .. "/ext" )
   mpt_projectname = "mpg123"
-  dofile "../../build/xcode-genie/genie-defaults-DLL.lua"
+  dofile "../../build/xcode-genie/genie-defaults-LIB.lua"
   dofile "../../build/xcode-genie/genie-defaults.lua"
   targetname "openmpt-mpg123"
   includedirs {
@@ -46,3 +46,6 @@
    "../../include/mpg123/src/libmpg123/tabinit.c",
   }
   defines { "OPT_GENERIC" }
+  defines { "HAVE_DIRENT_H"}
+  buildoptions { "-fembed-bitcode" }
+  

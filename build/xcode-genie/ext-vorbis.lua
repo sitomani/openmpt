@@ -5,7 +5,7 @@
   language "C"
   location ( "../../build/" .. mpt_projectpathname .. "/ext" )
   mpt_projectname = "vorbis"
-  dofile "../../build/xcode-genie/genie-defaults-LIBorDLL.lua"
+  dofile "../../build/xcode-genie/genie-defaults-LIB.lua"
   dofile "../../build/xcode-genie/genie-defaults.lua"
   targetname "openmpt-vorbis"
   local extincludedirs = {
@@ -92,3 +92,6 @@
   }
   links { "ogg" }
   configuration {}
+  buildoptions { "-fembed-bitcode" }
+
+
