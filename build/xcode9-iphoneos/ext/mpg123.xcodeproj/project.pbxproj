@@ -60,11 +60,11 @@
 		92D04DE2FEEC3FD3C7C4AC40 /* synth_real.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "synth_real.c"; path = "synth_real.c"; sourceTree = "<group>"; };
 		E855C19BD4946B177D174849 /* synth_s32.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "synth_s32.c"; path = "synth_s32.c"; sourceTree = "<group>"; };
 		6887E466541BDA0EBDDF33C3 /* tabinit.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "tabinit.c"; path = "tabinit.c"; sourceTree = "<group>"; };
-		F1D10A7EDD22F6BF0687E481 /* libopenmpt-mpg123.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; name = "libopenmpt-mpg123.dylib"; path = "libopenmpt-mpg123.dylib"; sourceTree = BUILT_PRODUCTS_DIR; };
+		BE5DEB43AA18DBEF53D0533A /* libopenmpt-mpg123.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; name = "libopenmpt-mpg123.a"; path = "libopenmpt-mpg123.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		3EFEC273AA1E0C1E7321471C /* Frameworks */ = {
+		0B852E2C774F0087C055FFAB /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -156,7 +156,7 @@
 		2FB6A6691B453033C463442E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F1D10A7EDD22F6BF0687E481 /* libopenmpt-mpg123.dylib */,
+				BE5DEB43AA18DBEF53D0533A /* libopenmpt-mpg123.a */,
 			);
 			name = "Products";
 			sourceTree = "<group>";
@@ -164,13 +164,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B7C72AE523AB39252CAE6761 /* mpg123 */ = {
+		E48D128E509B4074D9813C5F /* mpg123 */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 03A2900F6FC2D9B938C514B8 /* Build configuration list for PBXNativeTarget "mpg123" */;
+			buildConfigurationList = D0A53ABF3C700C1A85760B3F /* Build configuration list for PBXNativeTarget "mpg123" */;
 			buildPhases = (
-				4582A6C4B1A2EF6E7AA52A6D /* Resources */,
-				9D28BC7909490524D24B4022 /* Sources */,
-				3EFEC273AA1E0C1E7321471C /* Frameworks */,
+				926DBAAFFE378C0A473E8B2F /* Resources */,
+				6AFB39A0D6C50BFB1FCC0A20 /* Sources */,
+				0B852E2C774F0087C055FFAB /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -178,8 +178,8 @@
 			);
 			name = "mpg123";
 			productName = "mpg123";
-			productReference = F1D10A7EDD22F6BF0687E481 /* libopenmpt-mpg123.dylib */;
-			productType = "com.apple.product-type.library.dynamic";
+			productReference = BE5DEB43AA18DBEF53D0533A /* libopenmpt-mpg123.a */;
+			productType = "com.apple.product-type.library.static";
 		};
 /* End PBXNativeTarget section */
 
@@ -193,13 +193,13 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				B7C72AE523AB39252CAE6761 /* libopenmpt-mpg123.dylib */,
+				E48D128E509B4074D9813C5F /* libopenmpt-mpg123.a */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		4582A6C4B1A2EF6E7AA52A6D /* Resources */ = {
+		926DBAAFFE378C0A473E8B2F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -209,7 +209,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		9D28BC7909490524D24B4022 /* Sources */ = {
+		6AFB39A0D6C50BFB1FCC0A20 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -247,12 +247,11 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		3958B128A5BD44AF2E96E687 /* Debug */ = {
+		E6C926D95259E8C35B55C9DB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CONFIGURATION_BUILD_DIR = "../../../bin/debug/xcode9-iphoneos/all";
-				EXECUTABLE_PREFIX = lib;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				INSTALL_PATH = /usr/local/lib;
@@ -260,13 +259,12 @@
 			};
 			name = Debug;
 		};
-		B3C1C3501F32C6C9E8504052 /* Release */ = {
+		A0525CF40C6DBF95558FCF29 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CONFIGURATION_BUILD_DIR = "../../../bin/release/xcode9-iphoneos/all";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				EXECUTABLE_PREFIX = lib;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				INSTALL_PATH = /usr/local/lib;
@@ -306,6 +304,7 @@
 					MPT_BUILD_DEBUG,
 					MPT_BUILD_XCODE,
 					OPT_GENERIC,
+					HAVE_DIRENT_H,
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -322,6 +321,12 @@
 				);
 				OBJROOT = obj/Debug/mpg123;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = (
+					"-fembed-bitcode",
+				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"-fembed-bitcode",
+				);
 				SDKROOT = iphoneos;
 				SYMROOT = "../../../bin/debug/xcode9-iphoneos/all";
 			};
@@ -356,6 +361,7 @@
 					NDEBUG,
 					MPT_BUILD_XCODE,
 					OPT_GENERIC,
+					HAVE_DIRENT_H,
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -374,9 +380,11 @@
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
 					"-ffast-math",
+					"-fembed-bitcode",
 				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"-ffast-math",
+					"-fembed-bitcode",
 				);
 				SDKROOT = iphoneos;
 				SYMROOT = "../../../bin/release/xcode9-iphoneos/all";
@@ -386,11 +394,11 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		03A2900F6FC2D9B938C514B8 /* Build configuration list for PBXNativeTarget "libopenmpt-mpg123.dylib" */ = {
+		D0A53ABF3C700C1A85760B3F /* Build configuration list for PBXNativeTarget "libopenmpt-mpg123.a" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				3958B128A5BD44AF2E96E687 /* Debug */,
-				B3C1C3501F32C6C9E8504052 /* Release */,
+				E6C926D95259E8C35B55C9DB /* Debug */,
+				A0525CF40C6DBF95558FCF29 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = "Debug";

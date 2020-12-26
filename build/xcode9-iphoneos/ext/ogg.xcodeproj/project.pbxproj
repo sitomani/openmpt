@@ -18,11 +18,11 @@
 		2445CAEB90AA5D721983FF4A /* os_types.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "os_types.h"; path = "os_types.h"; sourceTree = "<group>"; };
 		12BD6692FEF869FC670B82F3 /* bitwise.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "bitwise.c"; path = "bitwise.c"; sourceTree = "<group>"; };
 		A14326DC8D7F2946F691413D /* framing.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "framing.c"; path = "framing.c"; sourceTree = "<group>"; };
-		F4DBB09760F497C129A1275B /* libopenmpt-ogg.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; name = "libopenmpt-ogg.dylib"; path = "libopenmpt-ogg.dylib"; sourceTree = BUILT_PRODUCTS_DIR; };
+		41DE8EAEADA0C238F65051C5 /* libopenmpt-ogg.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; name = "libopenmpt-ogg.a"; path = "libopenmpt-ogg.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		07066A7F73452E987C25F5AF /* Frameworks */ = {
+		54105F47C079F4A949BDA254 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -93,7 +93,7 @@
 		8C63D6C6F879D45C41F15F7E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F4DBB09760F497C129A1275B /* libopenmpt-ogg.dylib */,
+				41DE8EAEADA0C238F65051C5 /* libopenmpt-ogg.a */,
 			);
 			name = "Products";
 			sourceTree = "<group>";
@@ -101,13 +101,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		5A1D66B746D85563EF8FCEAD /* ogg */ = {
+		078A3634F3AE85B41CFA6A44 /* ogg */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 835E187EEF9DDC96F87DA3AE /* Build configuration list for PBXNativeTarget "ogg" */;
+			buildConfigurationList = 5022581ABC8BED7C45CF9B27 /* Build configuration list for PBXNativeTarget "ogg" */;
 			buildPhases = (
-				6526897ED1654D97DA4514AF /* Resources */,
-				5DB4F97EC9F3BD97D2D384AF /* Sources */,
-				07066A7F73452E987C25F5AF /* Frameworks */,
+				B201B07E1E6B45E1A7AEF38B /* Resources */,
+				2AA707E396109D451F544BF0 /* Sources */,
+				54105F47C079F4A949BDA254 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -115,8 +115,8 @@
 			);
 			name = "ogg";
 			productName = "ogg";
-			productReference = F4DBB09760F497C129A1275B /* libopenmpt-ogg.dylib */;
-			productType = "com.apple.product-type.library.dynamic";
+			productReference = 41DE8EAEADA0C238F65051C5 /* libopenmpt-ogg.a */;
+			productType = "com.apple.product-type.library.static";
 		};
 /* End PBXNativeTarget section */
 
@@ -130,13 +130,13 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				5A1D66B746D85563EF8FCEAD /* libopenmpt-ogg.dylib */,
+				078A3634F3AE85B41CFA6A44 /* libopenmpt-ogg.a */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		6526897ED1654D97DA4514AF /* Resources */ = {
+		B201B07E1E6B45E1A7AEF38B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -146,7 +146,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		5DB4F97EC9F3BD97D2D384AF /* Sources */ = {
+		2AA707E396109D451F544BF0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -161,12 +161,11 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		5C3A174348B70A8671340B9A /* Debug */ = {
+		8912233375F9E42A1E4A4B48 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CONFIGURATION_BUILD_DIR = "../../../bin/debug/xcode9-iphoneos/all";
-				EXECUTABLE_PREFIX = lib;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				INSTALL_PATH = /usr/local/lib;
@@ -174,13 +173,12 @@
 			};
 			name = Debug;
 		};
-		96B82A9C8220F169EB8B0580 /* Release */ = {
+		03508DBEEFA164AED8C0A1BE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CONFIGURATION_BUILD_DIR = "../../../bin/release/xcode9-iphoneos/all";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				EXECUTABLE_PREFIX = lib;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				INSTALL_PATH = /usr/local/lib;
@@ -232,6 +230,12 @@
 				);
 				OBJROOT = obj/Debug/ogg;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = (
+					"-fembed-bitcode",
+				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"-fembed-bitcode",
+				);
 				SDKROOT = iphoneos;
 				SYMROOT = "../../../bin/debug/xcode9-iphoneos/all";
 			};
@@ -280,9 +284,11 @@
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
 					"-ffast-math",
+					"-fembed-bitcode",
 				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"-ffast-math",
+					"-fembed-bitcode",
 				);
 				SDKROOT = iphoneos;
 				SYMROOT = "../../../bin/release/xcode9-iphoneos/all";
@@ -292,11 +298,11 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		835E187EEF9DDC96F87DA3AE /* Build configuration list for PBXNativeTarget "libopenmpt-ogg.dylib" */ = {
+		5022581ABC8BED7C45CF9B27 /* Build configuration list for PBXNativeTarget "libopenmpt-ogg.a" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				5C3A174348B70A8671340B9A /* Debug */,
-				96B82A9C8220F169EB8B0580 /* Release */,
+				8912233375F9E42A1E4A4B48 /* Debug */,
+				03508DBEEFA164AED8C0A1BE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = "Debug";

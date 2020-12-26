@@ -272,9 +272,9 @@
 		BE65A28E2A774A35B3C8DC74 /* tuningCollection.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4D2AA45339A8F4EC22A0B284 /* tuningCollection.cpp */; };
 		740778AAE06C0B316945AD09 /* tuningbase.h in Headers */ = {isa = PBXBuildFile; fileRef = 43D349472F25213718445E47 /* tuningbase.h */; };
 		7E32D99EEAF835BB3354C41D /* tuningcollection.h in Headers */ = {isa = PBXBuildFile; fileRef = F6483CC1E25B3C1A8B451907 /* tuningcollection.h */; };
-		ED7E69FCD9ACD6EFC20872B5 /* libopenmpt-mpg123.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = FC4593106810656BB1166490 /* libopenmpt-mpg123.dylib */; };
-		A3ACC5948FDA32887836CE4D /* libopenmpt-vorbis.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = F28958BE5E542A19A75A293E /* libopenmpt-vorbis.dylib */; };
-		138E8CDBFFBAD80C289C7B1D /* libopenmpt-ogg.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = C2B9A5172E233B7AB766E924 /* libopenmpt-ogg.dylib */; };
+		FA249A83E63CA5384F0C85FD /* libopenmpt-mpg123.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 69985CEFD50CF24C9E563F5C /* libopenmpt-mpg123.a */; };
+		B0E707EA9CFF129F05CFF263 /* libopenmpt-vorbis.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F51A2EFCBC5374D940F855C /* libopenmpt-vorbis.a */; };
+		209137370C287AECB5DCF0EC /* libopenmpt-ogg.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 2F19B06A9BAC1119A49381CF /* libopenmpt-ogg.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -282,43 +282,43 @@
 			isa = PBXContainerItemProxy;
 			containerPortal = C6AF7A2032CC6C11FBA3D97E /* mpg123.xcodeproj */;
 			proxyType = 2;
-			remoteGlobalIDString = F1D10A7EDD22F6BF0687E481;
-			remoteInfo = "libopenmpt-mpg123.dylib";
+			remoteGlobalIDString = BE5DEB43AA18DBEF53D0533A;
+			remoteInfo = "libopenmpt-mpg123.a";
 		};
 		5BC54443C78D12C7901E1BD9 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C6AF7A2032CC6C11FBA3D97E /* mpg123.xcodeproj */;
 			proxyType = 1;
-			remoteGlobalIDString = B7C72AE523AB39252CAE6761;
-			remoteInfo = "libopenmpt-mpg123.dylib";
+			remoteGlobalIDString = E48D128E509B4074D9813C5F;
+			remoteInfo = "libopenmpt-mpg123.a";
 		};
 		976C91FD03355F81CCC56793 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = BC5DDB23287ACD14F1513A82 /* vorbis.xcodeproj */;
 			proxyType = 2;
-			remoteGlobalIDString = 4C5A7FC238AB6A04610F59C6;
-			remoteInfo = "libopenmpt-vorbis.dylib";
+			remoteGlobalIDString = 99F0EBA685ABDB522E63549D;
+			remoteInfo = "libopenmpt-vorbis.a";
 		};
 		510997AEBDD1643286626D44 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = BC5DDB23287ACD14F1513A82 /* vorbis.xcodeproj */;
 			proxyType = 1;
-			remoteGlobalIDString = B230B2B81E14C1F82717EF34;
-			remoteInfo = "libopenmpt-vorbis.dylib";
+			remoteGlobalIDString = 5FB18E81CBBEBC6754A5B852;
+			remoteInfo = "libopenmpt-vorbis.a";
 		};
 		87E329D7F3CA14CDFCB81649 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8CD70C36F8126DF90108EA88 /* ogg.xcodeproj */;
 			proxyType = 2;
-			remoteGlobalIDString = F4DBB09760F497C129A1275B;
-			remoteInfo = "libopenmpt-ogg.dylib";
+			remoteGlobalIDString = 41DE8EAEADA0C238F65051C5;
+			remoteInfo = "libopenmpt-ogg.a";
 		};
 		E11BE4A24D03CF9856F1D014 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8CD70C36F8126DF90108EA88 /* ogg.xcodeproj */;
 			proxyType = 1;
-			remoteGlobalIDString = 5A1D66B746D85563EF8FCEAD;
-			remoteInfo = "libopenmpt-ogg.dylib";
+			remoteGlobalIDString = 078A3634F3AE85B41CFA6A44;
+			remoteInfo = "libopenmpt-ogg.a";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -588,20 +588,20 @@
 		4D2AA45339A8F4EC22A0B284 /* tuningCollection.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "tuningCollection.cpp"; path = "tuningCollection.cpp"; sourceTree = "<group>"; };
 		43D349472F25213718445E47 /* tuningbase.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "tuningbase.h"; path = "tuningbase.h"; sourceTree = "<group>"; };
 		F6483CC1E25B3C1A8B451907 /* tuningcollection.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "tuningcollection.h"; path = "tuningcollection.h"; sourceTree = "<group>"; };
-		C1F3343CADAE24E856669D32 /* liblibopenmpt.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; name = "liblibopenmpt.dylib"; path = "liblibopenmpt.dylib"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E172D277A3C7CA7A3876137 /* liblibopenmpt.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; name = "liblibopenmpt.a"; path = "liblibopenmpt.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6AF7A2032CC6C11FBA3D97E /* mpg123.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = "mpg123.xcodeproj"; path = "ext/mpg123.xcodeproj"; sourceTree = SOURCE_ROOT; };
 		BC5DDB23287ACD14F1513A82 /* vorbis.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = "vorbis.xcodeproj"; path = "ext/vorbis.xcodeproj"; sourceTree = SOURCE_ROOT; };
 		8CD70C36F8126DF90108EA88 /* ogg.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = "ogg.xcodeproj"; path = "ext/ogg.xcodeproj"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		7BE2DD0AE7F74B6170B425C2 /* Frameworks */ = {
+		C8D28E143412532D3DF21945 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ED7E69FCD9ACD6EFC20872B5 /* libopenmpt-mpg123.dylib in Frameworks */,
-				A3ACC5948FDA32887836CE4D /* libopenmpt-vorbis.dylib in Frameworks */,
-				138E8CDBFFBAD80C289C7B1D /* libopenmpt-ogg.dylib in Frameworks */,
+				FA249A83E63CA5384F0C85FD /* libopenmpt-mpg123.a in Frameworks */,
+				B0E707EA9CFF129F05CFF263 /* libopenmpt-vorbis.a in Frameworks */,
+				209137370C287AECB5DCF0EC /* libopenmpt-ogg.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -949,7 +949,7 @@
 		1D61A4B88923D842D2D366CF /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C1F3343CADAE24E856669D32 /* liblibopenmpt.dylib */,
+				8E172D277A3C7CA7A3876137 /* liblibopenmpt.a */,
 			);
 			name = "Products";
 			sourceTree = "<group>";
@@ -968,7 +968,7 @@
 		4062E77F2CCDA78BD5E80CF1 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				FC4593106810656BB1166490 /* libopenmpt-mpg123.dylib */,
+				69985CEFD50CF24C9E563F5C /* libopenmpt-mpg123.a */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -976,7 +976,7 @@
 		76FF657B626A26870B868BEC /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F28958BE5E542A19A75A293E /* libopenmpt-vorbis.dylib */,
+				5F51A2EFCBC5374D940F855C /* libopenmpt-vorbis.a */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -984,7 +984,7 @@
 		C6B09314B25AC9239B2BD13E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C2B9A5172E233B7AB766E924 /* libopenmpt-ogg.dylib */,
+				2F19B06A9BAC1119A49381CF /* libopenmpt-ogg.a */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -992,13 +992,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		87EFAFF2F3FCDDD87CE3D9C3 /* libopenmpt */ = {
+		B44D1C30208564C7298FC8EA /* libopenmpt */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 77F4D6DDE30945346CC61E95 /* Build configuration list for PBXNativeTarget "libopenmpt" */;
+			buildConfigurationList = 44DE71CCB01D36E5B9FDFCFC /* Build configuration list for PBXNativeTarget "libopenmpt" */;
 			buildPhases = (
-				D9D32E4245E99C98CEA576F9 /* Resources */,
-				517986A6BD8EF4FC464BCE5D /* Sources */,
-				7BE2DD0AE7F74B6170B425C2 /* Frameworks */,
+				2615D139925495529B345C6A /* Resources */,
+				1E1230A78A51F4BF9331BBD7 /* Sources */,
+				C8D28E143412532D3DF21945 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -1009,8 +1009,8 @@
 			);
 			name = "libopenmpt";
 			productName = "libopenmpt";
-			productReference = C1F3343CADAE24E856669D32 /* liblibopenmpt.dylib */;
-			productType = "com.apple.product-type.library.dynamic";
+			productReference = 8E172D277A3C7CA7A3876137 /* liblibopenmpt.a */;
+			productType = "com.apple.product-type.library.static";
 		};
 /* End PBXNativeTarget section */
 
@@ -1038,37 +1038,37 @@
 			);
 			projectRoot = "";
 			targets = (
-				87EFAFF2F3FCDDD87CE3D9C3 /* liblibopenmpt.dylib */,
+				B44D1C30208564C7298FC8EA /* liblibopenmpt.a */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXReferenceProxy section */
-		FC4593106810656BB1166490 /* libopenmpt-mpg123.dylib */ = {
+		69985CEFD50CF24C9E563F5C /* libopenmpt-mpg123.a */ = {
 			isa = PBXReferenceProxy;
-			fileType = "compiled.mach-o.dylib";
-			path = "../../../bin/debug/xcode9-iphoneos/all/libopenmpt-mpg123.dylib";
+			fileType = archive.ar;
+			path = "../../../bin/debug/xcode9-iphoneos/all/libopenmpt-mpg123.a";
 			remoteRef = A1283F920DF10C16D6811528 /* PBXContainerItemProxy */;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
-		F28958BE5E542A19A75A293E /* libopenmpt-vorbis.dylib */ = {
+		5F51A2EFCBC5374D940F855C /* libopenmpt-vorbis.a */ = {
 			isa = PBXReferenceProxy;
-			fileType = "compiled.mach-o.dylib";
-			path = "../../../bin/debug/xcode9-iphoneos/all/libopenmpt-vorbis.dylib";
+			fileType = archive.ar;
+			path = "../../../bin/debug/xcode9-iphoneos/all/libopenmpt-vorbis.a";
 			remoteRef = 976C91FD03355F81CCC56793 /* PBXContainerItemProxy */;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
-		C2B9A5172E233B7AB766E924 /* libopenmpt-ogg.dylib */ = {
+		2F19B06A9BAC1119A49381CF /* libopenmpt-ogg.a */ = {
 			isa = PBXReferenceProxy;
-			fileType = "compiled.mach-o.dylib";
-			path = "../../../bin/debug/xcode9-iphoneos/all/libopenmpt-ogg.dylib";
+			fileType = archive.ar;
+			path = "../../../bin/debug/xcode9-iphoneos/all/libopenmpt-ogg.a";
 			remoteRef = 87E329D7F3CA14CDFCB81649 /* PBXContainerItemProxy */;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
 /* End PBXReferenceProxy section */
 
 /* Begin PBXResourcesBuildPhase section */
-		D9D32E4245E99C98CEA576F9 /* Resources */ = {
+		2615D139925495529B345C6A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -1078,7 +1078,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		517986A6BD8EF4FC464BCE5D /* Sources */ = {
+		1E1230A78A51F4BF9331BBD7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -1227,28 +1227,27 @@
 /* Begin PBXTargetDependency section */
 		4CBE0C773829CD82E14432E8 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			name = "libopenmpt-mpg123.dylib";
+			name = "libopenmpt-mpg123.a";
 			targetProxy = 5BC54443C78D12C7901E1BD9 /* PBXContainerItemProxy */;
 		};
 		825B8B726EC64B7E17E2B0E3 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			name = "libopenmpt-vorbis.dylib";
+			name = "libopenmpt-vorbis.a";
 			targetProxy = 510997AEBDD1643286626D44 /* PBXContainerItemProxy */;
 		};
 		B203F8539EAD2D63877E357E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			name = "libopenmpt-ogg.dylib";
+			name = "libopenmpt-ogg.a";
 			targetProxy = E11BE4A24D03CF9856F1D014 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		09B8609D754722887E4303A0 /* Debug */ = {
+		B6C1FE35227B69E0ABDA83BA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CONFIGURATION_BUILD_DIR = "../../bin/debug/xcode9-iphoneos/all";
-				EXECUTABLE_PREFIX = lib;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				INSTALL_PATH = /usr/local/lib;
@@ -1256,13 +1255,12 @@
 			};
 			name = Debug;
 		};
-		8355CAAEEF6F2D5038923DE4 /* Release */ = {
+		707E11E7DC4210D7A5A840A1 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CONFIGURATION_BUILD_DIR = "../../bin/release/xcode9-iphoneos/all";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				EXECUTABLE_PREFIX = lib;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				INSTALL_PATH = /usr/local/lib;
@@ -1324,6 +1322,14 @@
 				);
 				OBJROOT = obj/Debug;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = (
+					"-std=c++17",
+					"-fembed-bitcode",
+				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"-std=c++17",
+					"-fembed-bitcode",
+				);
 				OTHER_LDFLAGS = (
 					"-lz",
 				);
@@ -1385,9 +1391,13 @@
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
 					"-ffast-math",
+					"-std=c++17",
+					"-fembed-bitcode",
 				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"-ffast-math",
+					"-std=c++17",
+					"-fembed-bitcode",
 				);
 				OTHER_LDFLAGS = (
 					"-lz",
@@ -1400,11 +1410,11 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		77F4D6DDE30945346CC61E95 /* Build configuration list for PBXNativeTarget "liblibopenmpt.dylib" */ = {
+		44DE71CCB01D36E5B9FDFCFC /* Build configuration list for PBXNativeTarget "liblibopenmpt.a" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				09B8609D754722887E4303A0 /* Debug */,
-				8355CAAEEF6F2D5038923DE4 /* Release */,
+				B6C1FE35227B69E0ABDA83BA /* Debug */,
+				707E11E7DC4210D7A5A840A1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = "Debug";
