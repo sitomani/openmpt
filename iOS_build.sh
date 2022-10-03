@@ -1,11 +1,14 @@
 # genie --target=iphoneos --file=genie.lua xcode9
 # BUILD FOR HW & SIMULATOR
 xcodebuild clean -workspace build/xcode9-iphoneos/libopenmpt.xcworkspace/ -scheme "libopenmpt Release" 
-xcodebuild build -workspace build/xcode9-iphoneos/libopenmpt.xcworkspace/ -scheme "libopenmpt Release" -configuration Release -sdk iphoneos IPHONEOS_DEPLOYMENT_TARGET='13.0' ARCHS='arm64' CONFIGURATION_BUILD_DIR=../../tmp/arm
-xcodebuild build -workspace build/xcode9-iphoneos/libopenmpt.xcworkspace/ -scheme "libopenmpt Release" -configuration Release -sdk iphonesimulator IPHONEOS_DEPLOYMENT_TARGET='13.0' ARCHS='x86_64' CONFIGURATION_BUILD_DIR=../../tmp/x86_64
+xcodebuild build -workspace build/xcode9-iphoneos/libopenmpt.xcworkspace/ -scheme "libopenmpt Release" -configuration Release -sdk iphoneos IPHONEOS_DEPLOYMENT_TARGET='13.0' ONLY_ACTIVE_ARCH=NO CONFIGURATION_BUILD_DIR=../../tmp/devb
+xcodebuild build -workspace build/xcode9-iphoneos/libopenmpt.xcworkspace/ -scheme "libopenmpt Release" -configuration Release -sdk iphonesimulator IPHONEOS_DEPLOYMENT_TARGET='13.0' ONLY_ACTIVE_ARCH=NO CONFIGURATION_BUILD_DIR=../../tmp/simb
 
-# CREATE FAT LIB
-lipo -create -output liblibopenmpt.a tmp/arm/liblibopenmpt.a tmp/x86_64/liblibopenmpt.a
+# CREATE FAT FRAMEWORK
+xcodebuild -create-xcframework \
+    -library tmp/devb/liblibopenmpt.a \
+    -library tmp/simb/liblibopenmpt.a \
+    -output libopenmpt.xcframework
 
 # CLEANUP 
 rm -rf tmp
