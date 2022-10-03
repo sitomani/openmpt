@@ -2,7 +2,7 @@
 
 This fork of libopenmpt is created to build libopenmpt as universal framework for iOS platform.
 
-To build for iOS, you will need a computer running macOS and xcode SDK installed. In addition, you'll need to have genie installed to generate the Xcode project file.
+To build for iOS, you will need a computer running macOS and xcode SDK installed. In addition, you'll need to have [genie](https://github.com/bkaradzic/GENie) installed to generate the Xcode project file.
 
 To build the iOS framework, run the following commands in the root directory of this repository:
 
