@@ -10,86 +10,108 @@
 
 #include "stdafx.h"
 
-#ifndef NO_VST
+#ifdef MPT_WITH_VST
 
 #include "Vstplug.h"
 #ifdef MODPLUG_TRACKER
-#include "Moddoc.h"
-#include "Mainfrm.h"
 #include "AbstractVstEditor.h"
-#include "VSTEditor.h"
 #include "DefaultVstEditor.h"
+#include "ExceptionHandler.h"
+#include "Mainfrm.h"
+#include "Moddoc.h"
+#include "Reporting.h"
+#include "TrackerSettings.h"
+#include "VSTEditor.h"
+#include "WindowMessages.h"
 #endif // MODPLUG_TRACKER
-#include "../soundlib/Sndfile.h"
-#include "../soundlib/MIDIEvents.h"
-#include "MIDIMappingDialog.h"
-#include "../common/mptStringBuffer.h"
 #include "FileDialog.h"
-#include "../pluginBridge/BridgeWrapper.h"
+#include "MIDIMappingDialog.h"
+#include "plugins/VstOpCodes.h"
+#include "../common/mptStringBuffer.h"
+#include "../misc/mptOSException.h"
 #include "../pluginBridge/BridgeOpCodes.h"
-#include "../soundlib/plugins/OpCodes.h"
+#include "../pluginBridge/BridgeWrapper.h"
+#include "../soundlib/MIDIEvents.h"
 #include "../soundlib/plugins/PluginManager.h"
+#include "../soundlib/Sndfile.h"
+#include "mpt/string/utility.hpp"
 
 using namespace Vst;
 DECLARE_FLAGSET(Vst::VstTimeInfoFlags)
 
 OPENMPT_NAMESPACE_BEGIN
 
-static VstTimeInfo g_timeInfoFallback = { 0 };
+static VstTimeInfo g_timeInfoFallback = {};
+static int32 g_shellPluginToLoad = 0;
 
 #ifdef MPT_ALL_LOGGING
 #define VST_LOG
 #endif
 
-// Try loading the VST library.
-static bool LoadLibrarySEH(const mpt::RawPathString &pluginPath, HMODULE &library)
+
+using VstCrash = Windows::SEH::Code;
+
+
+bool CVstPlugin::MaskCrashes() noexcept
 {
-	__try
-	{
-		library = LoadLibrary(pluginPath.c_str());
-		return true;
-	} __except(EXCEPTION_EXECUTE_HANDLER)
-	{
-		return false;
-	}
+	return m_maskCrashes;
 }
 
 
-static AEffect *CallMainProc(Vst::MainProc pMainProc)
+template <typename Tfn>
+DWORD CVstPlugin::SETryOrError(bool maskCrashes, Tfn fn)
 {
-	__try
+	DWORD exception = 0;
+	if(maskCrashes)
 	{
-		return pMainProc(CVstPlugin::MasterCallBack);
-	} __except(EXCEPTION_EXECUTE_HANDLER)
-	{
-		return nullptr;
-	}
-}
-
-
-// Try loading the VST plugin and retrieve the AEffect structure.
-static AEffect *GetAEffectSEH(HMODULE library)
-{
-	auto pMainProc = (Vst::MainProc)GetProcAddress(library, "VSTPluginMain");
-	if(pMainProc == nullptr)
-	{
-		pMainProc = (Vst::MainProc)GetProcAddress(library, "main");
-	}
-
-	if(pMainProc != nullptr)
-	{
-		return CallMainProc(pMainProc);
+		exception = Windows::SEH::TryOrError(fn);
+		if(exception)
+		{
+			ExceptionHandler::TaintProcess(ExceptionHandler::TaintReason::Plugin);
+		}
 	} else
 	{
-#ifdef VST_LOG
-		MPT_LOG(LogDebug, "VST", MPT_UFORMAT("Entry point not found! (handle={})")(mpt::ufmt::PTR(library)));
-#endif // VST_LOG
-		return nullptr;
+		fn();
 	}
+	return exception;
 }
 
 
-AEffect *CVstPlugin::LoadPlugin(VSTPluginLib &plugin, HMODULE &library, bool forceBridge)
+template <typename Tfn>
+DWORD CVstPlugin::SETryOrError(Tfn fn)
+{
+	DWORD exception = 0;
+	if(MaskCrashes())
+	{
+		exception = Windows::SEH::TryOrError(fn);
+		if(exception)
+		{
+			ExceptionHandler::TaintProcess(ExceptionHandler::TaintReason::Plugin);
+		}
+	} else
+	{
+#ifdef MODPLUG_TRACKER
+		ExceptionHandler::ContextSetter ectxguard{&m_Ectx};
+#endif // MODPLUG_TRACKER
+		fn();
+	}
+	return exception;
+}
+
+
+static bool IsValidPlugin(const AEffect *effect)
+{
+	return effect && effect->magic == Vst::kEffectMagic && effect->dispatcher != nullptr;
+}
+
+
+static bool IsBridged(const AEffect &effect)
+{
+	return !memcmp(&effect.reservedForHost2, "OMPT", 4);
+}
+
+
+std::pair<Vst::AEffect *, Vst::MainProc> CVstPlugin::LoadPluginInternal(bool maskCrashes, VSTPluginLib &plugin, HMODULE &library, BridgeMode bridgeMode)
 {
 	const mpt::PathString &pluginPath = plugin.dllPath;
 
@@ -97,14 +119,35 @@ AEffect *CVstPlugin::LoadPlugin(VSTPluginLib &plugin, HMODULE &library, bool for
 	library = nullptr;
 
 	const bool isNative = plugin.IsNative(false);
-	if(forceBridge || plugin.useBridge || !isNative)
+	if(bridgeMode != BridgeMode::Automatic || plugin.useBridge || !isNative)
 	{
+		if(bridgeMode == BridgeMode::DetectRequiredBridgeMode)
+		{
+			// First try modern bridge, then legacy bridge
+			plugin.modernBridge = true;
+			try
+			{
+				effect = BridgeWrapper::Create(plugin, false);
+				if(effect != nullptr)
+				{
+					return {effect, nullptr};
+				}
+			} catch(BridgeWrapper::BridgeNotFoundException &)
+			{
+			} catch(BridgeWrapper::BridgeException &)
+			{
+			}
+			// Retry with legacy bridge
+			plugin.useBridge = true;
+			plugin.modernBridge = false;
+		}
+
 		try
 		{
-			effect = BridgeWrapper::Create(plugin);
+			effect = BridgeWrapper::Create(plugin, bridgeMode == BridgeMode::DetectRequiredBridgeMode);
 			if(effect != nullptr)
 			{
-				return effect;
+				return {effect, nullptr};
 			}
 		} catch(BridgeWrapper::BridgeNotFoundException &)
 		{
@@ -112,7 +155,7 @@ AEffect *CVstPlugin::LoadPlugin(VSTPluginLib &plugin, HMODULE &library, bool for
 			if(!isNative)
 			{
 				Reporting::Error("Could not locate the plugin bridge executable, which is required for running non-native plugins.", "OpenMPT Plugin Bridge");
-				return nullptr;
+				return {nullptr, nullptr};
 			}
 		} catch(BridgeWrapper::BridgeException &e)
 		{
@@ -124,29 +167,38 @@ AEffect *CVstPlugin::LoadPlugin(VSTPluginLib &plugin, HMODULE &library, bool for
 					(plugin.dllPath, mpt::get_exception_text<mpt::ustring>(e));
 				if(Reporting::Confirm(msg, _T("OpenMPT Plugin Bridge")) == cnfNo)
 				{
-					return nullptr;
+					return {nullptr, nullptr};
 				}
 			} else
 			{
 				Reporting::Error(mpt::get_exception_text<mpt::ustring>(e), "OpenMPT Plugin Bridge");
-				return nullptr;
+				return {nullptr, nullptr};
 			}
 		}
 		// If plugin was marked to use the plugin bridge but this somehow doesn't work (e.g. because the bridge is missing),
 		// disable the plugin bridge for this plugin.
 		plugin.useBridge = false;
+		plugin.modernBridge = true;
 	}
 
-	if(!LoadLibrarySEH(pluginPath.AsNative(), library))
 	{
-		CVstPluginManager::ReportPlugException(MPT_UFORMAT("Exception caught while loading {}")(pluginPath));
+#ifdef MODPLUG_TRACKER
+		ExceptionHandler::Context ectx{ MPT_UFORMAT("VST Plugin: {}")(plugin.dllPath.ToUnicode()) };
+		ExceptionHandler::ContextSetter ectxguard{&ectx};
+#endif // MODPLUG_TRACKER
+		DWORD exception = SETryOrError(maskCrashes, [&](){ library = LoadLibrary(pluginPath.AsNative().c_str()); });
+		if(exception)
+		{
+			CVstPluginManager::ReportPlugException(MPT_UFORMAT("Exception caught while loading {}")(pluginPath));
+			return {nullptr, nullptr};
+		}
 	}
 	if(library == nullptr)
 	{
 		DWORD error = GetLastError();
 		if(error == ERROR_MOD_NOT_FOUND)
 		{
-			return nullptr;
+			return {nullptr, nullptr};
 		} else if(error == ERROR_DLL_INIT_FAILED)
 		{
 			// A likely reason for this error is that Fiber Local Storage slots are exhausted, e.g. because too many plugins ship with a statically linked runtime.
@@ -159,7 +211,7 @@ AEffect *CVstPlugin::LoadPlugin(VSTPluginLib &plugin, HMODULE &library, bool for
 #ifdef _DEBUG
 		mpt::ustring buf = MPT_UFORMAT("Warning: encountered problem when loading plugin dll. Error {}: {}")
 			( mpt::ufmt::hex(error)
-			, mpt::ToUnicode(mpt::Windows::GetErrorMessage(error))
+			, mpt::ToUnicode(mpt::windows::GetErrorMessage(error))
 			);
 		Reporting::Error(buf, "DEBUG: Error when loading plugin dll");
 #endif //_DEBUG
@@ -167,11 +219,114 @@ AEffect *CVstPlugin::LoadPlugin(VSTPluginLib &plugin, HMODULE &library, bool for
 
 	if(library != nullptr && library != INVALID_HANDLE_VALUE)
 	{
-		effect = GetAEffectSEH(library);
+		auto pMainProc = mpt::function_pointer_cast<Vst::MainProc>(GetProcAddress(library, "VSTPluginMain"));
+		if(pMainProc == nullptr)
+			pMainProc = mpt::function_pointer_cast<Vst::MainProc>(GetProcAddress(library, "main"));
+
+		if(pMainProc != nullptr)
+		{
+#ifdef MODPLUG_TRACKER
+			ExceptionHandler::Context ectx{ MPT_UFORMAT("VST Plugin: {}")(plugin.dllPath.ToUnicode()) };
+			ExceptionHandler::ContextSetter ectxguard{&ectx};
+#endif // MODPLUG_TRACKER
+			if(!SETryOrError(maskCrashes, [&]() { effect = pMainProc(CVstPlugin::MasterCallBack); }))
+				return {effect, pMainProc};
+		} else
+		{
+#ifdef VST_LOG
+			MPT_LOG_GLOBAL(LogDebug, "VST", MPT_UFORMAT("Entry point not found! (handle={})")(mpt::ufmt::PTR(library)));
+#endif // VST_LOG
+		}
+	}
+	return {nullptr, nullptr};
+}
+
+
+CVstPlugin::LoadResult CVstPlugin::LoadPlugin(bool maskCrashes, VSTPluginLib &plugin, BridgeMode bridgeMode, unsigned long &exception)
+{
+	LoadResult result{};
+	auto [effectPtr, mainProc] = LoadPluginInternal(maskCrashes, plugin, result.library, bridgeMode);
+	result.effect = effectPtr;
+	result.mainProc = mainProc;
+	if(!IsValidPlugin(result.effect))
+		return result;
+
+	Vst::AEffect *effect = result.effect;
+	result.magic = effect->magic;
+	result.uniqueID = effect->uniqueID;
+
+	bool requestedShellPluginFound = false;
+	if(static_cast<PluginCategory>(DispatchSEH(maskCrashes, *effect, Vst::effGetPlugCategory, 0, 0, nullptr, 0, exception)) == PluginCategory::Shell)
+	{
+		std::vector<char> name(256, 0);  // 64 chars officially supported, but our plugin bridge assumes 256 chars max for all strings
+		intptr_t childID;
+		while((childID = CVstPlugin::DispatchSEH(maskCrashes, *effect, Vst::effShellGetNextPlugin, 0, 0, name.data(), 0.0f, exception)) != 0)
+		{
+			name[63] = 0;
+			result.shellPlugins.push_back(LoadResult::ShellPlugin{name.data(), static_cast<uint32>(childID)});
+
+			if(static_cast<uint32>(childID) == plugin.shellPluginID)
+				requestedShellPluginFound = true;
+		}
 	}
 
-	return effect;
+	if(plugin.shellPluginID)
+	{
+		if(!requestedShellPluginFound)
+		{
+			result.effect = nullptr;
+			Reporting::Error(MPT_UFORMAT("The shell plugin \"{}\" does not contain \"{}\".")
+				(plugin.dllPath.ToUnicode(), plugin.libraryName));
+		} else
+		{
+			SelectShellPlugin(maskCrashes, result, plugin);
+			effect = result.effect;
+		}
+	}
+
+	return result;
 }
+
+
+bool CVstPlugin::SelectShellPlugin(bool maskCrashes, LoadResult &loadResult, const VSTPluginLib &plugin)
+{
+	g_shellPluginToLoad = plugin.shellPluginID;
+	if(loadResult.effect && IsBridged(*loadResult.effect))
+	{
+		loadResult.effect->dispatcher(loadResult.effect, Vst::effVendorSpecific, kVendorOpenMPT, kCallVSTPluginMain, nullptr, 0.0f);
+	} else
+	{
+		unsigned long exception = 0;
+		if(loadResult.effect)
+			CVstPlugin::DispatchSEH(maskCrashes, *loadResult.effect, Vst::effClose, 0, 0, nullptr, 0.0f, exception);
+		exception = SETryOrError(maskCrashes, [&]() { loadResult.effect = loadResult.mainProc(CVstPlugin::MasterCallBack); });
+	}
+	g_shellPluginToLoad = 0;
+
+	if(!IsValidPlugin(loadResult.effect))
+		loadResult.effect = nullptr;
+	return loadResult.effect != nullptr;
+}
+
+
+void CVstPlugin::GetPluginMetadata(bool maskCrashes, LoadResult &loadResult, VSTPluginLib &plugin)
+{
+	std::vector<char> vendor(256, 0);
+	unsigned long exception = 0;
+	CVstPlugin::DispatchSEH(maskCrashes, *loadResult.effect, Vst::effGetVendorString, 0, 0, vendor.data(), 0.0f, exception);
+	vendor.back() = '\0';
+	plugin.vendor = mpt::ToCString(mpt::Charset::Locale, vendor.data());
+
+	plugin.isInstrument = CVstPlugin::IsInstrument(*loadResult.effect);
+	if(plugin.isInstrument)
+		plugin.category = PluginCategory::Synth;
+	else
+		plugin.category = static_cast<PluginCategory>(DispatchSEH(maskCrashes, *loadResult.effect, Vst::effGetPlugCategory, 0, 0, nullptr, 0.0f, exception));
+
+	if(plugin.category >= PluginCategory::NumCategories)
+		plugin.category = PluginCategory::Unknown;
+}
+
 
 static void operator|= (Vst::VstTimeInfoFlags &lhs, Vst::VstTimeInfoFlags rhs)
 {
@@ -181,7 +336,7 @@ static void operator|= (Vst::VstTimeInfoFlags &lhs, Vst::VstTimeInfoFlags rhs)
 intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost opcode, int32 index, intptr_t value, void *ptr, float opt)
 {
 #ifdef VST_LOG
-	MPT_LOG(LogDebug, "VST", MPT_UFORMAT("VST plugin to host: Eff: {}, Opcode = {}, Index = {}, Value = {}, PTR = {}, OPT = {}\n")(
+	MPT_LOG_GLOBAL(LogDebug, "VST", MPT_UFORMAT("VST plugin to host: Eff: {}, Opcode = {}, Index = {}, Value = {}, PTR = {}, OPT = {}\n")(
 		mpt::ufmt::PTR(effect), mpt::ufmt::val(opcode),
 		mpt::ufmt::val(index), mpt::ufmt::PTR(value), mpt::ufmt::PTR(ptr), mpt::ufmt::flt(opt, 3)));
 	MPT_TRACE();
@@ -191,15 +346,18 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 
 	enum
 	{
-		HostDoNotKnow	= 0,
-		HostCanDo		= 1,
-		HostCanNotDo	= -1
+		HostDoNotKnow = 0,
+		HostCanDo     = 1,
+		HostCanNotDo  = -1
 	};
 
 	CVstPlugin *pVstPlugin = nullptr;
+	CSoundFile *sndFile = nullptr;
 	if(effect != nullptr)
 	{
 		pVstPlugin = static_cast<CVstPlugin *>(effect->reservedForHost1);
+		if(pVstPlugin)
+			sndFile = &pVstPlugin->GetSoundFile();
 	}
 
 	switch(opcode)
@@ -221,9 +379,11 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 		return kVstVersion;
 
 	// Returns the unique id of a plugin that's currently loading
-	// We don't support shell plugins currently, so we only support one effect ID as well.
 	case audioMasterCurrentId:
-		return (effect != nullptr) ? effect->uniqueID : 0;
+		if(pVstPlugin && pVstPlugin->m_pMixStruct)
+			return pVstPlugin->m_pMixStruct->Info.shellPluginID ? pVstPlugin->m_pMixStruct->Info.shellPluginID : effect->uniqueID;
+		else
+			return g_shellPluginToLoad;
 
 	// Call application idle routine (this will call effEditIdle for all open editors too)
 	case audioMasterIdle:
@@ -252,15 +412,15 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 		if(pVstPlugin)
 		{
 			VstTimeInfo &timeInfo = pVstPlugin->timeInfo;
-			MemsetZero(timeInfo);
+			mpt::reset(timeInfo);
 
 			timeInfo.sampleRate = pVstPlugin->m_nSampleRate;
-			CSoundFile &sndFile = pVstPlugin->GetSoundFile();
 			if(pVstPlugin->IsSongPlaying())
 			{
-				timeInfo.flags |= kVstTransportPlaying;
-				if(pVstPlugin->GetSoundFile().m_SongFlags[SONG_PATTERNLOOP]) timeInfo.flags |= kVstTransportCycleActive;
-				timeInfo.samplePos = sndFile.GetTotalSampleCount();
+				if(!sndFile->m_PlayState.m_flags[SONG_PAUSED])
+					timeInfo.flags |= kVstTransportPlaying;
+				if(sndFile->m_PlayState.m_flags[SONG_PATTERNLOOP])
+					timeInfo.flags |= kVstTransportCycleActive;
 				if(pVstPlugin->m_positionChanged)
 				{
 					timeInfo.flags |= kVstTransportChanged;
@@ -269,9 +429,9 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 			} else
 			{
 				timeInfo.flags |= kVstTransportChanged; //just stopped.
-				timeInfo.samplePos = 0;
 				pVstPlugin->lastBarStartPos = -1.0;
 			}
+			timeInfo.samplePos = sndFile->GetTotalSampleCount();
 			if((value & kVstNanosValid))
 			{
 				timeInfo.flags |= kVstNanosValid;
@@ -280,20 +440,20 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 			if((value & kVstPpqPosValid))
 			{
 				timeInfo.flags |= kVstPpqPosValid;
-				if (timeInfo.flags & kVstTransportPlaying)
-				{
-					timeInfo.ppqPos = (timeInfo.samplePos / timeInfo.sampleRate) * (sndFile.GetCurrentBPM() / 60.0);
-				} else
-				{
-					timeInfo.ppqPos = 0;
-				}
+				if(sndFile->m_playBehaviour[kLegacyPPQpos])
+					timeInfo.ppqPos = (timeInfo.samplePos / timeInfo.sampleRate) * (sndFile->GetCurrentBPM() / 60.0);
+				else
+					timeInfo.ppqPos = sndFile->m_PlayState.m_ppqPosBeat + sndFile->m_PlayState.m_ppqPosFract;
 
 				ROWINDEX rpm = pVstPlugin->GetSoundFile().m_PlayState.m_nCurrentRowsPerMeasure;
 				if(!rpm)
 					rpm = 4;
 				if((pVstPlugin->GetSoundFile().m_PlayState.m_nRow % rpm) == 0)
 				{
-					pVstPlugin->lastBarStartPos = std::floor(timeInfo.ppqPos);
+					if(sndFile->m_playBehaviour[kLegacyPPQpos])
+						pVstPlugin->lastBarStartPos = std::floor(timeInfo.ppqPos);
+					else
+						pVstPlugin->lastBarStartPos = sndFile->m_PlayState.m_ppqPosBeat;  // Only updated at start of measure
 				}
 				if(pVstPlugin->lastBarStartPos >= 0)
 				{
@@ -303,7 +463,7 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 			}
 			if((value & kVstTempoValid))
 			{
-				timeInfo.tempo = sndFile.GetCurrentBPM();
+				timeInfo.tempo = sndFile->GetCurrentBPM();
 				if (timeInfo.tempo)
 				{
 					timeInfo.flags |= kVstTempoValid;
@@ -314,9 +474,9 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 				timeInfo.flags |= kVstTimeSigValid;
 
 				// Time signature. numerator = rows per beats / rows pear measure (should sound somewhat logical to you).
-				// the denominator is a bit more tricky, since it cannot be set explicitely. so we just assume quarters for now.
-				ROWINDEX rpb = std::max(sndFile.m_PlayState.m_nCurrentRowsPerBeat, ROWINDEX(1));
-				timeInfo.timeSigNumerator = std::max(sndFile.m_PlayState.m_nCurrentRowsPerMeasure, rpb) / rpb;
+				// the denominator is a bit more tricky, since it cannot be set explicitly. so we just assume quarters for now.
+				ROWINDEX rpb = std::max(sndFile->m_PlayState.m_nCurrentRowsPerBeat, ROWINDEX(1));
+				timeInfo.timeSigNumerator = std::max(sndFile->m_PlayState.m_nCurrentRowsPerMeasure, rpb) / rpb;
 				timeInfo.timeSigDenominator = 4; //std::gcd(pSndFile->m_nCurrentRowsPerMeasure, pSndFile->m_nCurrentRowsPerBeat);
 			}
 			return ToIntPtr(&timeInfo);
@@ -337,21 +497,21 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 
 	// DEPRECATED in VST 2.4
 	case audioMasterSetTime:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Set Time"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Set Time"));
 		break;
 
 	// returns tempo (in bpm * 10000) at sample frame location passed in <value> - DEPRECATED in VST 2.4
 	case audioMasterTempoAt:
 		// Screw it! Let's just return the tempo at this point in time (might be a bit wrong).
-		if (pVstPlugin != nullptr)
+		if(sndFile != nullptr)
 		{
-			return mpt::saturate_round<int32>(pVstPlugin->GetSoundFile().GetCurrentBPM() * 10000);
+			return mpt::saturate_round<int32>(sndFile->GetCurrentBPM() * 10000);
 		}
 		return (125 * 10000);
 
 	// parameters - DEPRECATED in VST 2.4
 	case audioMasterGetNumAutomatableParameters:
-		//MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Num Automatable Parameters"));
+		//MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Num Automatable Parameters"));
 		if(pVstPlugin != nullptr)
 		{
 			return pVstPlugin->GetNumParameters();
@@ -360,7 +520,7 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 
 	// Apparently, this one is broken in VST SDK anyway. - DEPRECATED in VST 2.4
 	case audioMasterGetParameterQuantization:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Audio Master Get Parameter Quantization"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Audio Master Get Parameter Quantization"));
 		break;
 
 	// numInputs and/or numOutputs has changed
@@ -391,7 +551,7 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 				pVstEditor->SetSize(index, static_cast<int>(value));
 			}
 		}
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Size Window"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Size Window"));
 		return 1;
 
 	case audioMasterGetSampleRate:
@@ -408,13 +568,13 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 		return MIXBUFFERSIZE;
 
 	case audioMasterGetInputLatency:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Input Latency"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Input Latency"));
 		break;
 
 	case audioMasterGetOutputLatency:
 		if(pVstPlugin)
 		{
-			return mpt::saturate_round<intptr_t>(pVstPlugin->GetOutputLatency() * pVstPlugin->GetSoundFile().GetSampleRate());
+			return mpt::saturate_round<intptr_t>(pVstPlugin->GetOutputLatency() * sndFile->GetSampleRate());
 		}
 		break;
 
@@ -458,7 +618,7 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 		return 1; //we replace.
 
 	case audioMasterGetCurrentProcessLevel:
-		if(pVstPlugin != nullptr && pVstPlugin->GetSoundFile().IsRenderingToDisc())
+		if(sndFile != nullptr && sndFile->IsRenderingToDisc())
 			return kVstProcessLevelOffline;
 		else
 			return kVstProcessLevelRealtime;
@@ -468,37 +628,37 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 	case audioMasterGetAutomationState:
 		// Not entirely sure what this means. We can write automation TO the plug.
 		// Is that "read" in this context?
-		//MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Automation State"));
+		//MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Automation State"));
 		return kVstAutomationReadWrite;
 
 	case audioMasterOfflineStart:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Offlinestart"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Offlinestart"));
 		break;
 
 	case audioMasterOfflineRead:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Offlineread"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Offlineread"));
 		break;
 
 	case audioMasterOfflineWrite:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Offlinewrite"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Offlinewrite"));
 		break;
 
 	case audioMasterOfflineGetCurrentPass:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: OfflineGetcurrentpass"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: OfflineGetcurrentpass"));
 		break;
 
 	case audioMasterOfflineGetCurrentMetaPass:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: OfflineGetCurrentMetapass"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: OfflineGetCurrentMetapass"));
 		break;
 
 	// for variable i/o, sample rate in <opt> - DEPRECATED in VST 2.4
 	case audioMasterSetOutputSampleRate:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Set Output Sample Rate"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Set Output Sample Rate"));
 		break;
 
 	// result in ret - DEPRECATED in VST 2.4
 	case audioMasterGetOutputSpeakerArrangement:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Output Speaker Arrangement"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Output Speaker Arrangement"));
 		break;
 
 	case audioMasterGetVendorString:
@@ -517,13 +677,12 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 
 	// void* in <ptr>, format not defined yet - DEPRECATED in VST 2.4
 	case audioMasterSetIcon:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Set Icon"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Set Icon"));
 		break;
 
 	// string in ptr, see below
 	case audioMasterCanDo:
-		//Other possible Can Do strings are:
-		if(!strcmp((char*)ptr, HostCanDo::sendVstEvents)
+		if(!strcmp((char *)ptr, HostCanDo::sendVstEvents)
 		   || !strcmp((char *)ptr, HostCanDo::sendVstMidiEvent)
 		   || !strcmp((char *)ptr, HostCanDo::sendVstTimeInfo)
 		   || !strcmp((char *)ptr, HostCanDo::receiveVstEvents)
@@ -533,7 +692,8 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 		   || !strcmp((char *)ptr, HostCanDo::openFileSelector)
 		   || !strcmp((char *)ptr, HostCanDo::closeFileSelector)
 		   || !strcmp((char *)ptr, HostCanDo::acceptIOChanges)
-		   || !strcmp((char *)ptr, HostCanDo::reportConnectionChanges))
+		   || !strcmp((char *)ptr, HostCanDo::reportConnectionChanges)
+		   || !strcmp((char *)ptr, HostCanDo::shellCategory))
 		{
 			return HostCanDo;
 		} else
@@ -546,17 +706,17 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 
 	// returns platform specific ptr - DEPRECATED in VST 2.4
 	case audioMasterOpenWindow:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Open Window"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Open Window"));
 		break;
 
 	// close window, platform specific handle in <ptr> - DEPRECATED in VST 2.4
 	case audioMasterCloseWindow:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Close Window"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Close Window"));
 		break;
 
 	// get plugin directory, FSSpec on MAC, else char*
 	case audioMasterGetDirectory:
-		//MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Directory"));
+		//MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Directory"));
 		// Need to allocate space for path only, but I guess noone relies on this anyway.
 		//return ToVstPtr(pVstPlugin->GetPluginFactory().dllPath.GetPath().ToLocale());
 		//return ToVstPtr(TrackerSettings::Instance().PathPlugins.GetDefaultDir());
@@ -579,12 +739,12 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 
 	// begin of automation session (when mouse down), parameter index in <index>
 	case audioMasterBeginEdit:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Begin Edit"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Begin Edit"));
 		break;
 
 	// end of automation session (when mouse up),     parameter index in <index>
 	case audioMasterEndEdit:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: End Edit"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: End Edit"));
 		break;
 
 	// open a fileselector window with VstFileSelect* in <ptr>
@@ -598,10 +758,11 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 		{
 			return pVstPlugin->VstFileSelector(opcode == audioMasterCloseFileSelector, *static_cast<VstFileSelect *>(ptr));
 		}
+		break;
 
 	// open an editor for audio (defined by XML text in ptr) - DEPRECATED in VST 2.4
 	case audioMasterEditFile:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Edit File"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Edit File"));
 		break;
 
 	// get the native path of currently loading bank or project
@@ -616,32 +777,32 @@ intptr_t VSTCALLBACK CVstPlugin::MasterCallBack(AEffect *effect, VstOpcodeToHost
 			{
 				pathStr = U_("%1");
 			}
-			const mpt::PathString projectPath = pVstPlugin->GetModDoc()->GetPathNameMpt().GetPath();
-			const mpt::PathString projectFile = pVstPlugin->GetModDoc()->GetPathNameMpt().GetFullFileName();
-			pathStr = mpt::String::Replace(pathStr, U_("%1"), U_("?1?"));
-			pathStr = mpt::String::Replace(pathStr, U_("%2"), U_("?2?"));
-			pathStr = mpt::String::Replace(pathStr, U_("?1?"), projectPath.ToUnicode());
-			pathStr = mpt::String::Replace(pathStr, U_("?2?"), projectFile.ToUnicode());
+			const mpt::PathString projectPath = pVstPlugin->GetModDoc()->GetPathNameMpt().GetDirectoryWithDrive();
+			const mpt::PathString projectFile = pVstPlugin->GetModDoc()->GetPathNameMpt().GetFilename();
+			pathStr = mpt::replace(pathStr, U_("%1"), U_("?1?"));
+			pathStr = mpt::replace(pathStr, U_("%2"), U_("?2?"));
+			pathStr = mpt::replace(pathStr, U_("?1?"), projectPath.ToUnicode());
+			pathStr = mpt::replace(pathStr, U_("?2?"), projectFile.ToUnicode());
 			mpt::PathString path = mpt::PathString::FromUnicode(pathStr);
 			if(path.empty())
 			{
 				return 0;
 			}
-			path.EnsureTrailingSlash();
+			path = path.WithTrailingSlash();
 			::SHCreateDirectoryEx(NULL, path.AsNative().c_str(), nullptr);
 			path += projectFile;
 			strcpy(static_cast<char*>(ptr), path.ToLocale().c_str());
 			return 1;
 		}
 #endif
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Chunk File"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Chunk File"));
 		break;
 
 	//---from here VST 2.3 extension opcodes------------------------------------------------------
 
 	// result a VstSpeakerArrangement in ret - DEPRECATED in VST 2.4
 	case audioMasterGetInputSpeakerArrangement:
-		MPT_LOG(LogDebug, "VST", U_("VST plugin to host: Get Input Speaker Arrangement"));
+		MPT_LOG_GLOBAL(LogDebug, "VST", U_("VST plugin to host: Get Input Speaker Arrangement"));
 		break;
 
 	}
@@ -680,7 +841,7 @@ intptr_t CVstPlugin::VstFileSelector(bool destructor, VstFileSelect &fileSel)
 #elif MPT_OS_GENERIC_UNIX
 				extensions += "*.";
 				extensions += type.unixType;
-#else
+#elif !defined(CPPCHECK)
 #error Platform-specific code missing
 #endif
 				extensions += "|";
@@ -706,7 +867,8 @@ intptr_t CVstPlugin::VstFileSelector(bool destructor, VstFileSelect &fileSel)
 			}
 			dlg.ExtensionFilter(extensions)
 				.WorkingDirectory(mpt::PathString::FromLocale(workingDir))
-				.AddPlace(GetPluginFactory().dllPath.GetPath());
+				.AddPlace(GetPluginFactory().dllPath.GetDirectoryWithDrive())
+				.AddPlace(TrackerSettings::Instance().PathPluginPresets.GetWorkingDir());
 			if(!dlg.Show(GetEditor()))
 				return 0;
 
@@ -742,7 +904,7 @@ intptr_t CVstPlugin::VstFileSelector(bool destructor, VstFileSelect &fileSel)
 		} else
 		{
 			// Plugin wants a directory
-			BrowseForFolder dlg(mpt::PathString::FromLocale(fileSel.initialPath != nullptr ? fileSel.initialPath : ""), mpt::ToCString(mpt::Charset::Locale, fileSel.title != nullptr ? fileSel.title : ""));
+			BrowseForFolder dlg(mpt::PathString::FromLocale(fileSel.initialPath != nullptr ? fileSel.initialPath : ""), mpt::ToCString(mpt::Charset::Locale, fileSel.title));
 			if(!dlg.Show(GetEditor()))
 				return 0;
 
@@ -809,19 +971,19 @@ intptr_t CVstPlugin::VstFileSelector(bool destructor, VstFileSelect &fileSel)
 // CVstPlugin
 //
 
-CVstPlugin::CVstPlugin(HMODULE hLibrary, VSTPluginLib &factory, SNDMIXPLUGIN &mixStruct, AEffect &effect, CSoundFile &sndFile)
-	: IMidiPlugin(factory, sndFile, &mixStruct)
-	, m_Effect(effect)
-	, timeInfo{}
-	, isBridged(!memcmp(&effect.reservedForHost2, "OMPT", 4))
+CVstPlugin::CVstPlugin(bool maskCrashes, HMODULE hLibrary, VSTPluginLib &factory, SNDMIXPLUGIN &mixStruct, AEffect &effect, CSoundFile &sndFile)
+	: IMidiPlugin(factory, sndFile, mixStruct)
+	, m_maskCrashes(maskCrashes)
 	, m_hLibrary(hLibrary)
+	, m_Effect(effect)
 	, m_nSampleRate(sndFile.GetSampleRate())
 	, m_isInitialized(false)
 	, m_needIdle(false)
+	, timeInfo{}
+	, isBridged(IsBridged(effect))
 {
 	// Open plugin and initialize data structures
 	Initialize();
-	InsertIntoFactoryList();
 
 	m_isInitialized = true;
 }
@@ -829,15 +991,13 @@ CVstPlugin::CVstPlugin(HMODULE hLibrary, VSTPluginLib &factory, SNDMIXPLUGIN &mi
 
 void CVstPlugin::Initialize()
 {
-	// If filename matched during load but plugin ID didn't, make sure it's updated.
-	m_pMixStruct->Info.dwPluginId1 = m_Factory.pluginId1 = m_Effect.magic;
-	m_pMixStruct->Info.dwPluginId2 = m_Factory.pluginId2 = m_Effect.uniqueID;
+	m_Ectx = { MPT_UFORMAT("VST Plugin: {}")(m_Factory.dllPath.ToUnicode()) };
 
 	// Store a pointer so we can get the CVstPlugin object from the basic VST effect object.
 	m_Effect.reservedForHost1 = this;
 	m_nSampleRate = m_SndFile.GetSampleRate();
 
-	// First try to let the plugin know the render parameters.
+	// First try to let the plugin know the render parameters. (added in r6457, but I have no recollection of which plugins needed this!)
 	Dispatch(effSetSampleRate, 0, 0, nullptr, static_cast<float>(m_nSampleRate));
 	Dispatch(effSetBlockSize, 0, MIXBUFFERSIZE, nullptr, 0.0f);
 
@@ -958,19 +1118,18 @@ CVstPlugin::~CVstPlugin()
 	m_isInitialized = false;
 
 	Dispatch(effClose, 0, 0, nullptr, 0);
-	// Buggy SynthEdit 1.4 plugins: Showing a SynthEdit 1.4 plugin's editor, fully unloading the plugin,
-	// then loading another (unrelated) SynthEdit 1.4 plugin and showing its editor causes a crash.
-	if(m_hLibrary && TrackerSettings::Instance().FullyUnloadPlugins)
+	if(TrackerSettings::Instance().BrokenPluginsWorkaroundVSTNeverUnloadAnyPlugin)
 	{
-		FreeLibrary(m_hLibrary);
+		// Buggy SynthEdit 1.4 plugins: Showing a SynthEdit 1.4 plugin's editor, fully unloading the plugin,
+		// then loading another (unrelated) SynthEdit 1.4 plugin and showing its editor causes a crash.
+	} else
+	{
+		if(m_hLibrary)
+		{
+			FreeLibrary(m_hLibrary);
+		}
 	}
 
-}
-
-
-void CVstPlugin::Release()
-{
-	delete this;
 }
 
 
@@ -996,7 +1155,7 @@ int32 CVstPlugin::GetNumPrograms() const
 
 PlugParamIndex CVstPlugin::GetNumParameters() const
 {
-	return std::max(m_Effect.numParams, int32(0));
+	return m_Effect.numParams;
 }
 
 
@@ -1020,16 +1179,17 @@ int32 CVstPlugin::GetVersion() const
 
 
 // Wrapper for VST dispatch call with structured exception handling.
-intptr_t CVstPlugin::DispatchSEH(AEffect *effect, VstOpcodeToPlugin opCode, int32 index, intptr_t value, void *ptr, float opt, unsigned long &exception)
+intptr_t CVstPlugin::DispatchSEH(bool maskCrashes, AEffect &effect, VstOpcodeToPlugin opCode, int32 index, intptr_t value, void *ptr, float opt, unsigned long &exception)
 {
-	__try
+	if(effect.dispatcher != nullptr)
 	{
-		if(effect->dispatcher != nullptr)
+		intptr_t result = 0;
+		DWORD e = SETryOrError(maskCrashes, [&](){ result = effect.dispatcher(&effect, opCode, index, value, ptr, opt); });
+		if(e)
 		{
-			return effect->dispatcher(effect, opCode, index, value, ptr, opt);
+			exception = e;
 		}
-	} __except((exception = GetExceptionCode()), EXCEPTION_EXECUTE_HANDLER)
-	{
+		return result;
 	}
 	return 0;
 }
@@ -1037,29 +1197,39 @@ intptr_t CVstPlugin::DispatchSEH(AEffect *effect, VstOpcodeToPlugin opCode, int3
 
 intptr_t CVstPlugin::Dispatch(VstOpcodeToPlugin opCode, int32 index, intptr_t value, void *ptr, float opt)
 {
-	unsigned long exception = 0;
 #ifdef VST_LOG
 	{
 		mpt::ustring codeStr;
-		if(opCode < std::size(VstOpCodes))
+		if(opCode >= 0 && static_cast<std::size_t>(opCode) < std::size(VstOpCodes))
+		{
 			codeStr = mpt::ToUnicode(mpt::Charset::ASCII, VstOpCodes[opCode]);
-		else
+		} else
+		{
 			codeStr = mpt::ufmt::val(opCode);
-		MPT_LOG(LogDebug, "VST", MPT_UFORMAT("About to Dispatch({}) (Plugin=\"{}\"), index: {}, value: {}, ptr: {}, opt: {}!\n")(codeStr, m_Factory.libraryName, index, mpt::ufmt::PTR(value), mpt::ufmt::PTR(ptr), mpt::ufmt::flt(opt, 3)));
+		}
+		MPT_LOG_GLOBAL(LogDebug, "VST", MPT_UFORMAT("About to Dispatch({}) (Plugin=\"{}\"), index: {}, value: {}, ptr: {}, opt: {}!\n")(codeStr, m_Factory.libraryName, index, mpt::ufmt::PTR(value), mpt::ufmt::PTR(ptr), mpt::ufmt::flt(opt, 3)));
 	}
 #endif
-	intptr_t result = DispatchSEH(&m_Effect, opCode, index, value, ptr, opt, exception);
-
-	if(exception)
+	if(!m_Effect.dispatcher)
 	{
-		mpt::ustring codeStr;
-		if(opCode < static_cast<int32>(std::size(VstOpCodes)))
-			codeStr = mpt::ToUnicode(mpt::Charset::ASCII, VstOpCodes[opCode]);
-		else
-			codeStr = mpt::ufmt::val(opCode);
-		ReportPlugException(MPT_UFORMAT("Exception {} in Dispatch({})")(mpt::ufmt::HEX0<8>(exception), codeStr));
+		return 0;
 	}
-
+	intptr_t result = 0;
+	{
+		DWORD exception = SETryOrError([&](){ result = m_Effect.dispatcher(&m_Effect, opCode, index, value, ptr, opt); });
+		if(exception)
+		{
+			mpt::ustring codeStr;
+			if(opCode < mpt::saturate_cast<int32>(std::size(VstOpCodes)))
+			{
+				codeStr = mpt::ToUnicode(mpt::Charset::ASCII, VstOpCodes[opCode]);
+			} else
+			{
+				codeStr = mpt::ufmt::val(opCode);
+			}
+			ReportPlugException(MPT_UFORMAT("Exception {} in Dispatch({})")(mpt::ufmt::HEX0<8>(exception), codeStr));
+		}
+	}
 	return result;
 }
 
@@ -1163,10 +1333,8 @@ PlugParamValue CVstPlugin::GetParameter(PlugParamIndex nIndex)
 	float fResult = 0;
 	if(nIndex < m_Effect.numParams && m_Effect.getParameter != nullptr)
 	{
-		__try
-		{
-			fResult = m_Effect.getParameter(&m_Effect, nIndex);
-		} __except(EXCEPTION_EXECUTE_HANDLER)
+		DWORD exception = SETryOrError([&](){ fResult = m_Effect.getParameter(&m_Effect, nIndex); });
+		if(exception)
 		{
 			//ReportPlugException(U_("Exception in getParameter (Plugin=\"{}\")!\n"), m_Factory.szLibraryName);
 		}
@@ -1175,24 +1343,23 @@ PlugParamValue CVstPlugin::GetParameter(PlugParamIndex nIndex)
 }
 
 
-void CVstPlugin::SetParameter(PlugParamIndex nIndex, PlugParamValue fValue)
+void CVstPlugin::SetParameter(PlugParamIndex nIndex, PlugParamValue fValue, PlayState *, CHANNELINDEX)
 {
-	__try
+	DWORD exception = 0;
+	if(nIndex < m_Effect.numParams && m_Effect.setParameter)
 	{
-		if(nIndex < m_Effect.numParams && m_Effect.setParameter)
-		{
-			m_Effect.setParameter(&m_Effect, nIndex, fValue);
-		}
-		ResetSilence();
-	} __except(EXCEPTION_EXECUTE_HANDLER)
+		exception = SETryOrError([&](){ m_Effect.setParameter(&m_Effect, nIndex, fValue); });
+	}
+	ResetSilence();
+	if(exception)
 	{
-		//ReportPlugException(MPT_UFORMAT("Exception in SetParameter({}, {})!")(nIndex, fValue));
+		//ReportPlugException(mpt::format(U_("Exception in SetParameter({}, {})!"))(nIndex, fValue));
 	}
 }
 
 
-// Helper function for retreiving parameter name / label / display
-CString CVstPlugin::GetParamPropertyString(int32 param, Vst::VstOpcodeToPlugin opcode)
+// Helper function for retrieving parameter name / label / display
+CString CVstPlugin::GetParamPropertyString(PlugParamIndex param, Vst::VstOpcodeToPlugin opcode)
 {
 	if(m_Effect.numParams > 0 && param < m_Effect.numParams)
 	{
@@ -1267,14 +1434,29 @@ void CVstPlugin::Suspend()
 }
 
 
+void CVstPlugin::PositionChanged()
+{
+	m_positionChanged = true;
+	if(!IsResumed())
+	{
+		Resume();
+		// Electri-Q crashes with a heap corruption if we try to process 0 samples.
+		float out = 0.0f;
+		Process(&out, &out, 1);
+		Suspend();
+		// As we have now rendered one sample, reset the position change flag again. Otherwise the last bar start position may be off by a sample.
+		m_positionChanged = true;
+	}
+}
+
+
 // Send events to plugin. Returns true if there are events left to be processed.
 void CVstPlugin::ProcessVSTEvents()
 {
 	// Process VST events
 	if(m_Effect.dispatcher != nullptr && vstEvents.Finalise() > 0)
 	{
-		unsigned long exception = 0;
-		DispatchSEH(&m_Effect, effProcessEvents, 0, 0, &vstEvents, 0, exception);
+		DWORD exception = SETryOrError([&](){ m_Effect.dispatcher(&m_Effect, effProcessEvents, 0, 0, &vstEvents, 0); });
 		ResetSilence();
 		if(exception)
 		{
@@ -1296,7 +1478,7 @@ void CVstPlugin::ReceiveVSTEvents(const VstEvents *events)
 
 	ResetSilence();
 
-	// I think we should only route events to plugins that are explicitely specified as output plugins of the current plugin.
+	// I think we should only route events to plugins that are explicitly specified as output plugins of the current plugin.
 	// This should probably use GetOutputPlugList here if we ever get to support multiple output plugins.
 	PLUGINDEX receiver = m_pMixStruct->GetOutputPlugin();
 
@@ -1319,7 +1501,7 @@ void CVstPlugin::ReceiveVSTEvents(const VstEvents *events)
 				} else if(ev->type == kVstSysExType)
 				{
 					auto event = static_cast<const VstMidiSysexEvent *>(ev);
-					plugin->MidiSysexSend(mpt::as_span(mpt::byte_cast<const std::byte *>(event->sysexDump), event->dumpBytes));
+					plugin->MidiSend(mpt::as_span(mpt::byte_cast<const std::byte *>(event->sysexDump), event->dumpBytes));
 				}
 			}
 		}
@@ -1339,18 +1521,6 @@ void CVstPlugin::ReceiveVSTEvents(const VstEvents *events)
 		}
 	}
 #endif // MODPLUG_TRACKER
-}
-
-
-// Wrapper for VST process call with structured exception handling.
-static void ProcessSEH(Vst::ProcessProc processFP, AEffect* effect, float** inputs, float** outputs, int32 sampleFrames, unsigned long &exception)
-{
-	__try
-	{
-		processFP(effect, inputs, outputs, sampleFrames);
-	} __except((exception = GetExceptionCode()), EXCEPTION_EXECUTE_HANDLER)
-	{
-	}
 }
 
 
@@ -1382,14 +1552,15 @@ void CVstPlugin::Process(float *pOutL, float *pOutR, uint32 numFrames)
 		}
 
 		// Do the VST processing magic
-		ASSERT(numFrames <= MIXBUFFERSIZE);
-		unsigned long exception = 0;
-		ProcessSEH(m_pProcessFP, &m_Effect, m_mixBuffer.GetInputBufferArray(), outputBuffers, numFrames, exception);
-		if(exception)
+		MPT_ASSERT(numFrames <= MIXBUFFERSIZE);
 		{
-			Bypass();
-			mpt::ustring processMethod = (m_Effect.flags & effFlagsCanReplacing) ? U_("processReplacing") : U_("process");
-			ReportPlugException(MPT_UFORMAT("The plugin threw an exception ({}) in {}. It has automatically been set to \"Bypass\".")(mpt::ufmt::HEX0<8>(exception), processMethod));
+			DWORD exception = SETryOrError([&](){ m_pProcessFP(&m_Effect, m_mixBuffer.GetInputBufferArray(), outputBuffers, numFrames); });
+			if(exception)
+			{
+				Bypass();
+				mpt::ustring processMethod = (m_Effect.flags & effFlagsCanReplacing) ? U_("processReplacing") : U_("process");
+				ReportPlugException(MPT_UFORMAT("The plugin threw an exception ({}) in {}. It has automatically been set to \"Bypass\".")(mpt::ufmt::HEX0<8>(exception), processMethod));
+			}
 		}
 
 		// Mix outputs of multi-output VSTs:
@@ -1441,35 +1612,39 @@ void CVstPlugin::Process(float *pOutL, float *pOutR, uint32 numFrames)
 }
 
 
-bool CVstPlugin::MidiSend(uint32 dwMidiCode)
+bool CVstPlugin::MidiSend(mpt::const_byte_span midiData)
 {
-	// Note-Offs go at the start of the queue (since OpenMPT 1.17). Needed for situations like this:
-	// ... ..|C-5 01
-	// C-5 01|=== ..
-	// TODO: Should not be used with real-time notes! Letting the key go too quickly
-	// (e.g. while output device is being initalized) will cause the note to be stuck!
-	bool insertAtFront = (MIDIEvents::GetTypeFromEvent(dwMidiCode) == MIDIEvents::evNoteOff);
-
-	VstMidiEvent event{};
-	event.type = kVstMidiType;
-	event.byteSize = sizeof(event);
-	event.midiData = dwMidiCode;
+	if(IsBypassed())
+		return true;
 
 	ResetSilence();
-	return vstEvents.Enqueue(&event, insertAtFront);
-}
+	const uint8 type = mpt::byte_cast<uint8>(midiData[0]);
+	if(type == 0xF0)
+	{
+		VstMidiSysexEvent event{};
+		event.type = kVstSysExType;
+		event.byteSize = sizeof(event);
+		event.dumpBytes = mpt::saturate_cast<int32>(midiData.size());
+		event.sysexDump = midiData.data();  // We will make our own copy in VstEventQueue::Enqueue
 
+		return vstEvents.Enqueue(&event);
+	} else
+	{
+		// Note-Offs go at the start of the queue (since OpenMPT 1.17). Needed for situations like this:
+		// ... ..|C-5 01
+		// C-5 01|=== ..
+		// TODO: Should not be used with real-time notes! Letting the key go too quickly
+		// (e.g. while output device is being initialized) will cause the note to be stuck!
+		bool insertAtFront = (MIDIEvents::GetTypeFromEvent(type) == MIDIEvents::evNoteOff);
 
-bool CVstPlugin::MidiSysexSend(mpt::const_byte_span sysex)
-{
-	VstMidiSysexEvent event{};
-	event.type = kVstSysExType;
-	event.byteSize = sizeof(event);
-	event.dumpBytes = mpt::saturate_cast<int32>(sysex.size());
-	event.sysexDump = sysex.data();	// We will make our own copy in VstEventQueue::Enqueue
+		VstMidiEvent event{};
+		event.type = kVstMidiType;
+		event.byteSize = sizeof(event);
+		MPT_ASSERT(midiData.size() <= sizeof(event.midiData) && midiData.size() == MIDIEvents::GetEventLength(type));
+		memcpy(&event.midiData, midiData.data(), std::min(sizeof(event.midiData), midiData.size()));
 
-	ResetSilence();
-	return vstEvents.Enqueue(&event);
+		return vstEvents.Enqueue(&event, insertAtFront);
+	}
 }
 
 
@@ -1487,27 +1662,29 @@ void CVstPlugin::HardAllNotesOff()
 
 	const bool isWavestation = GetUID() == FourCC("KLWV");
 	const bool isSawer = GetUID() == FourCC("SaWR");
+	const bool isTranceGate = GetUID() == FourCC("TTGA");
 	for(uint8 mc = 0; mc < m_MidiCh.size(); mc++)
 	{
 		PlugInstrChannel &channel = m_MidiCh[mc];
-		channel.ResetProgram();
+		channel.ResetProgram(m_SndFile.m_playBehaviour[kPluginDefaultProgramAndBank1]);
 
-		MidiPitchBend(mc, EncodePitchBendParam(MIDIEvents::pitchBendCentre));		// centre pitch bend
+		SendMidiPitchBend(mc, EncodePitchBendParam(MIDIEvents::pitchBendCentre));  // centre pitch bend
 
-		if(!isWavestation && !isSawer)
+		if(!isWavestation && !isSawer && !isTranceGate)
 		{
 			// Korg Wavestation doesn't seem to like this CC, it can introduce ghost notes or
 			// prevent new notes from being played.
 			// Image-Line Sawer does not like it either and resets some parameters so that the plugin is all
 			// distorted afterwards.
-			MidiSend(MIDIEvents::CC(MIDIEvents::MIDICC_AllControllersOff, mc, 0));		// reset all controllers
+			// T-Force Trance Gate 2 also resets some controllers that are not desirable to be reset, such as user-configured resonance
+			MidiSend(MIDIEvents::CC(MIDIEvents::MIDICC_AllControllersOff, mc, 0));
 		}
 		if(!isSawer)
 		{
 			// Image-Line Sawer takes ages to execute this CC.
-			MidiSend(MIDIEvents::CC(MIDIEvents::MIDICC_AllNotesOff, mc, 0));			// all notes off
+			MidiSend(MIDIEvents::CC(MIDIEvents::MIDICC_AllNotesOff, mc, 0));
 		}
-		MidiSend(MIDIEvents::CC(MIDIEvents::MIDICC_AllSoundOff, mc, 0));			// all sounds off
+		MidiSend(MIDIEvents::CC(MIDIEvents::MIDICC_AllSoundOff, mc, 0));
 
 		for(std::size_t i = 0; i < std::size(channel.noteOnMap); i++)	//all notes
 		{
@@ -1636,9 +1813,15 @@ void CVstPlugin::NotifySongPlaying(bool playing)
 }
 
 
+bool CVstPlugin::IsInstrument(Vst::AEffect &effect)
+{
+	return (effect.flags & effFlagsIsSynth) || !effect.numInputs;
+}
+
+
 bool CVstPlugin::IsInstrument() const
 {
-	return ((m_Effect.flags & effFlagsIsSynth) || (!m_Effect.numInputs));
+	return IsInstrument(m_Effect);
 }
 
 
@@ -1696,4 +1879,4 @@ void CVstPlugin::SetChunk(const ChunkData &chunk, bool isBank)
 
 OPENMPT_NAMESPACE_END
 
-#endif // NO_VST
+#endif // MPT_WITH_VST

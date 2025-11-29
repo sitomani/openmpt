@@ -1,24 +1,23 @@
 
 #include "stdafx.h"
 
-#if MPT_COMPILER_MSVC
-#pragma warning(disable:4800) // 'T' : forcing value to bool 'true' or 'false' (performance warning)
-#endif // MPT_COMPILER_MSVC
-
 #include "NativeSoundDevice.h"
 #include "NativeUtils.h"
 
-#include "../../sounddev/SoundDevice.h"
-#include "../../sounddev/SoundDeviceManager.h"
-#include "../../sounddev/SoundDevicePortAudio.h"
+#include "mpt/out_of_memory/out_of_memory.hpp"
 
-#include "../../sounddev/SoundDeviceUtilities.h"
+#include "openmpt/sounddevice/SoundDevice.hpp"
+#include "openmpt/sounddevice/SoundDeviceManager.hpp"
+#include "openmpt/sounddevice/SoundDeviceUtilities.hpp"
 
 #include "../../common/ComponentManager.h"
+
+#include "../../misc/mptOS.h"
 
 #include "NativeSoundDeviceMarshalling.h"
 
 #include <string>
+#include <type_traits>
 
 #include <cstdint>
 #include <cstdlib>
@@ -35,12 +34,20 @@ namespace C {
 class ComponentSoundDeviceManager
 	: public ComponentBuiltin
 {
-	MPT_DECLARE_COMPONENT_MEMBERS
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentSoundDeviceManager, "SoundDeviceManager")
 private:
+	mpt::log::GlobalLogger logger;
 	SoundDevice::Manager manager;
+private:
+	static SoundDevice::SysInfo GetSysInfo()
+	{
+		mpt::OS::Wine::VersionContext wineVersionContext;
+		return SoundDevice::SysInfo(mpt::osinfo::get_class(), mpt::osinfo::windows::Version::Current(), mpt::OS::Windows::IsWine(), wineVersionContext.HostClass(), wineVersionContext.Version());
+	}
+
 public:
 	ComponentSoundDeviceManager()
-		: manager(SoundDevice::SysInfo::Current(), SoundDevice::AppInfo())
+		: manager(logger, GetSysInfo(), SoundDevice::AppInfo())
 	{
 		return;
 	}
@@ -54,7 +61,6 @@ public:
 		return const_cast<SoundDevice::Manager &>(manager);
 	}
 };
-MPT_REGISTERED_COMPONENT(ComponentSoundDeviceManager, "SoundDeviceManager")
 
 static mpt::ustring GetTypePrefix()
 {
@@ -92,7 +98,7 @@ std::string SoundDevice_EnumerateDevices()
 
 SoundDevice::IBase * SoundDevice_Construct(std::string info_)
 {
-	MPT_LOG(LogDebug, "NativeSupport", MPT_UFORMAT("Contruct: {}")(mpt::ToUnicode(mpt::Charset::UTF8, info_)));
+	MPT_LOG_GLOBAL(LogDebug, "NativeSupport", MPT_UFORMAT("Contruct: {}")(mpt::ToUnicode(mpt::Charset::UTF8, info_)));
 	ComponentHandle<ComponentSoundDeviceManager> manager;
 	if(!IsComponentAvailable(manager))
 	{
@@ -132,13 +138,13 @@ public:
 	}
 };
 
-class NativeSourceProxy
-	: public SoundDevice::ISource
+class NativeCallbackProxy
+	: public SoundDevice::ICallback
 {
 private:
-	OpenMPT_SoundDevice_ISource impl;
+	OpenMPT_SoundDevice_ICallback impl;
 public:
-	NativeSourceProxy(const OpenMPT_SoundDevice_ISource * impl_)
+	NativeCallbackProxy(const OpenMPT_SoundDevice_ICallback * impl_)
 	{
 		MemsetZero(impl);
 		if(impl_)
@@ -146,101 +152,155 @@ public:
 			impl = *impl_;
 		}
 	}
-	virtual ~NativeSourceProxy()
+	virtual ~NativeCallbackProxy()
 	{
 		return;
 	}
 public:
 	// main thread
-	virtual uint64 SoundSourceGetReferenceClockNowNanoseconds() const
+	virtual uint64 SoundCallbackGetReferenceClockNowNanoseconds() const
 	{
-		if(!impl.SoundSourceGetReferenceClockNowNanosecondsFunc)
+		if(!impl.SoundCallbackGetReferenceClockNowNanosecondsFunc)
 		{
 			return 0;
 		}
 		uint64_t result = 0;
-		impl.SoundSourceGetReferenceClockNowNanosecondsFunc(impl.inst, &result);
+		impl.SoundCallbackGetReferenceClockNowNanosecondsFunc(impl.inst, &result);
 		return result;
 	}
-	virtual void SoundSourcePreStartCallback()
+	virtual void SoundCallbackPreStart()
 	{
-		if(!impl.SoundSourcePreStartCallbackFunc)
+		if(!impl.SoundCallbackPreStartFunc)
 		{
 			return;
 		}
-		return impl.SoundSourcePreStartCallbackFunc(impl.inst);
+		return impl.SoundCallbackPreStartFunc(impl.inst);
 	}
-	virtual void SoundSourcePostStopCallback()
+	virtual void SoundCallbackPostStop()
 	{
-		if(!impl.SoundSourcePostStopCallbackFunc)
+		if(!impl.SoundCallbackPostStopFunc)
 		{
 			return;
 		}
-		return impl.SoundSourcePostStopCallbackFunc(impl.inst);
+		return impl.SoundCallbackPostStopFunc(impl.inst);
 	}
-	virtual bool SoundSourceIsLockedByCurrentThread() const
+	virtual bool SoundCallbackIsLockedByCurrentThread() const
 	{
-		if(!impl.SoundSourceIsLockedByCurrentThreadFunc)
+		if(!impl.SoundCallbackIsLockedByCurrentThreadFunc)
 		{
 			return 0;
 		}
 		uintptr_t result = 0;
-		impl.SoundSourceIsLockedByCurrentThreadFunc(impl.inst, &result);
-		return result;
+		impl.SoundCallbackIsLockedByCurrentThreadFunc(impl.inst, &result);
+		return result != 0;
 	}
 	// audio thread
-	virtual void SoundSourceLock()
+	virtual void SoundCallbackLock()
 	{
-		if(!impl.SoundSourceLockFunc)
+		if(!impl.SoundCallbackLockFunc)
 		{
 			return;
 		}
-		return impl.SoundSourceLockFunc(impl.inst);
+		return impl.SoundCallbackLockFunc(impl.inst);
 	}
-	virtual uint64 SoundSourceLockedGetReferenceClockNowNanoseconds() const
+	virtual uint64 SoundCallbackLockedGetReferenceClockNowNanoseconds() const
 	{
-		if(!impl.SoundSourceLockedGetReferenceClockNowNanosecondsFunc)
+		if(!impl.SoundCallbackLockedGetReferenceClockNowNanosecondsFunc)
 		{
 			return 0;
 		}
 		uint64_t result = 0;
-		impl.SoundSourceLockedGetReferenceClockNowNanosecondsFunc(impl.inst, &result);
+		impl.SoundCallbackLockedGetReferenceClockNowNanosecondsFunc(impl.inst, &result);
 		return result;
 	}
-	virtual void SoundSourceLockedReadPrepare(SoundDevice::TimeInfo timeInfo)
+	virtual void SoundCallbackLockedProcessPrepare(SoundDevice::TimeInfo timeInfo)
 	{
-		if(!impl.SoundSourceLockedReadPrepareFunc)
+		if(!impl.SoundCallbackLockedProcessPrepareFunc)
 		{
 			return;
 		}
 		OpenMPT_SoundDevice_TimeInfo c_timeInfo = C::encode(timeInfo);
-		return impl.SoundSourceLockedReadPrepareFunc(impl.inst, &c_timeInfo);
+		return impl.SoundCallbackLockedProcessPrepareFunc(impl.inst, &c_timeInfo);
 	}
-	virtual void SoundSourceLockedRead(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, void *buffer, const void *inputBuffer)
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, uint8 *buffer, const uint8 *inputBuffer)
 	{
-		if(!impl.SoundSourceLockedReadFunc)
+		if(!impl.SoundCallbackLockedProcessUint8Func)
 		{
 			return;
 		}
 		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
-		return impl.SoundSourceLockedReadFunc(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+		return impl.SoundCallbackLockedProcessUint8Func(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
 	}
-	virtual void SoundSourceLockedReadDone(SoundDevice::TimeInfo timeInfo)
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, int8 *buffer, const int8 *inputBuffer)
 	{
-		if(!impl.SoundSourceLockedReadDoneFunc)
+		if(!impl.SoundCallbackLockedProcessInt8Func)
+		{
+			return;
+		}
+		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
+		return impl.SoundCallbackLockedProcessInt8Func(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+	}
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, int16 *buffer, const int16 *inputBuffer)
+	{
+		if(!impl.SoundCallbackLockedProcessInt16Func)
+		{
+			return;
+		}
+		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
+		return impl.SoundCallbackLockedProcessInt16Func(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+	}
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, int24 *buffer, const int24 *inputBuffer)
+	{
+		if(!impl.SoundCallbackLockedProcessInt24Func)
+		{
+			return;
+		}
+		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
+		return impl.SoundCallbackLockedProcessInt24Func(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+	}
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, int32 *buffer, const int32 *inputBuffer)
+	{
+		if(!impl.SoundCallbackLockedProcessInt32Func)
+		{
+			return;
+		}
+		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
+		return impl.SoundCallbackLockedProcessInt32Func(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+	}
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, float *buffer, const float *inputBuffer)
+	{
+		if(!impl.SoundCallbackLockedProcessFloatFunc)
+		{
+			return;
+		}
+		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
+		return impl.SoundCallbackLockedProcessFloatFunc(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+	}
+	virtual void SoundCallbackLockedProcess(SoundDevice::BufferFormat bufferFormat, std::size_t numFrames, double *buffer, const double *inputBuffer)
+	{
+		if(!impl.SoundCallbackLockedProcessDoubleFunc)
+		{
+			return;
+		}
+		OpenMPT_SoundDevice_BufferFormat c_bufferFormat = C::encode(bufferFormat);
+		return impl.SoundCallbackLockedProcessDoubleFunc(impl.inst, &c_bufferFormat, numFrames, buffer, inputBuffer);
+	}
+	virtual void SoundCallbackLockedProcessDone(SoundDevice::TimeInfo timeInfo)
+	{
+		if(!impl.SoundCallbackLockedProcessDoneFunc)
 		{
 			return;
 		}
 		OpenMPT_SoundDevice_TimeInfo c_timeInfo = C::encode(timeInfo);
-		return impl.SoundSourceLockedReadDoneFunc(impl.inst, &c_timeInfo);
+		return impl.SoundCallbackLockedProcessDoneFunc(impl.inst, &c_timeInfo);
 	}
-	virtual void SoundSourceUnlock()
+	virtual void SoundCallbackUnlock()
 	{
-		if(!impl.SoundSourceUnlockFunc)
+		if(!impl.SoundCallbackUnlockFunc)
 		{
 			return;
 		}
-		return impl.SoundSourceUnlockFunc(impl.inst);
+		return impl.SoundCallbackUnlockFunc(impl.inst);
 	}
 };
 
@@ -253,7 +313,7 @@ extern "C" {
 struct OpenMPT_SoundDevice {
 	OPENMPT_NAMESPACE::SoundDevice::IBase * impl;
 	OPENMPT_NAMESPACE::C::NativeMessageReceiverProxy * messageReceiver;
-	OPENMPT_NAMESPACE::C::NativeSourceProxy * source;
+	OPENMPT_NAMESPACE::C::NativeCallbackProxy * callback;
 };
 
 OPENMPT_WINESUPPORT_API char * OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_EnumerateDevices() {
@@ -289,34 +349,44 @@ OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_Destru
 	}
 }
 
-OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_SetMessageReceiver( OpenMPT_SoundDevice * sd, const OpenMPT_SoundDevice_IMessageReceiver * receiver ) {
+OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_SetMessageReceiver( OpenMPT_SoundDevice * sd, const OpenMPT_SoundDevice_IMessageReceiver * receiver ) {
 	if ( !sd ) {
-		return;
+		return 0;
 	}
 	if ( !sd->impl ) {
-		return;
+		return 0;
 	}
 	sd->impl->SetMessageReceiver( nullptr );
 	delete sd->messageReceiver;
 	sd->messageReceiver = nullptr;
-	sd->messageReceiver = new OPENMPT_NAMESPACE::C::NativeMessageReceiverProxy( receiver );
+	try {
+		sd->messageReceiver = new OPENMPT_NAMESPACE::C::NativeMessageReceiverProxy( receiver );
+	} catch ( mpt::out_of_memory e ) {
+		mpt::delete_out_of_memory( e );
+		return 0;
+	}
 	sd->impl->SetMessageReceiver( sd->messageReceiver );
-	return;
+	return 1;
 }
 
-OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_SetSource( OpenMPT_SoundDevice * sd, const OpenMPT_SoundDevice_ISource * source ) {
+OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_SetCallback( OpenMPT_SoundDevice * sd, const OpenMPT_SoundDevice_ICallback * callback ) {
 	if ( !sd ) {
-		return;
+		return 0;
 	}
 	if ( !sd->impl ) {
-		return;
+		return 0;
 	}
-	sd->impl->SetSource( nullptr );
-	delete sd->source;
-	sd->source = nullptr;
-	sd->source = new OPENMPT_NAMESPACE::C::NativeSourceProxy( source );
-	sd->impl->SetSource( sd->source );
-	return;
+	sd->impl->SetCallback( nullptr );
+	delete sd->callback;
+	sd->callback = nullptr;
+	try {
+		sd->callback = new OPENMPT_NAMESPACE::C::NativeCallbackProxy( callback );
+	} catch ( mpt::out_of_memory e ) {
+		mpt::delete_out_of_memory( e );
+		return 0;
+	}
+	sd->impl->SetCallback( sd->callback );
+	return 1;
 }
 
 OPENMPT_WINESUPPORT_API char * OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetDeviceInfo( const OpenMPT_SoundDevice * sd ) {
@@ -334,26 +404,26 @@ OPENMPT_WINESUPPORT_API char * OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetD
 }
 
 OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_Init( OpenMPT_SoundDevice * sd, const char * appInfo ) {
-	return sd->impl->Init( OPENMPT_NAMESPACE::json_cast<OPENMPT_NAMESPACE::SoundDevice::AppInfo>( std::string(appInfo) ) );
+	return sd->impl->Init( OPENMPT_NAMESPACE::json_cast<OPENMPT_NAMESPACE::SoundDevice::AppInfo>( std::string(appInfo) ) ) ? 1 : 0;
 }
 
 OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_Open( OpenMPT_SoundDevice * sd, const char * settings ) {
-	return sd->impl->Open( OPENMPT_NAMESPACE::json_cast<OPENMPT_NAMESPACE::SoundDevice::Settings>( std::string(settings) ) );
+	return sd->impl->Open( OPENMPT_NAMESPACE::json_cast<OPENMPT_NAMESPACE::SoundDevice::Settings>( std::string(settings) ) ) ? 1 : 0;
 }
 
 OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_Close( OpenMPT_SoundDevice * sd ) {
-	return sd->impl->Close();
+	return sd->impl->Close() ? 1 : 0;
 }
 
 OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_Start( OpenMPT_SoundDevice * sd ) {
-	return sd->impl->Start();
+	return sd->impl->Start() ? 1 : 0;
 }
 
 OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_Stop( OpenMPT_SoundDevice * sd ) {
-	return sd->impl->Stop();
+	sd->impl->Stop();
 }
 
-OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetRequestFlags( const OpenMPT_SoundDevice * sd, uint32_t * result) {
+OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetRequestFlags( const OpenMPT_SoundDevice * sd, uint32_t * result ) {
 	*result = sd->impl->GetRequestFlags().GetRaw();
 }
 
@@ -378,11 +448,11 @@ OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_I
 }
 
 OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_StopAndAvoidPlayingSilence( OpenMPT_SoundDevice * sd ) {
-	return sd->impl->StopAndAvoidPlayingSilence();
+	sd->impl->StopAndAvoidPlayingSilence();
 }
 
 OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_EndPlayingSilence( OpenMPT_SoundDevice * sd ) {
-	return sd->impl->EndPlayingSilence();
+	sd->impl->EndPlayingSilence();
 }
 
 OPENMPT_WINESUPPORT_API uintptr_t OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_OnIdle( OpenMPT_SoundDevice * sd ) {
@@ -394,7 +464,7 @@ OPENMPT_WINESUPPORT_API char * OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetS
 }
 
 OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetActualSampleFormat( const OpenMPT_SoundDevice * sd, int32_t * result ) {
-	*result = sd->impl->GetActualSampleFormat();
+	*result = OPENMPT_NAMESPACE::mpt::to_underlying<OPENMPT_NAMESPACE::SampleFormat::Enum>(sd->impl->GetActualSampleFormat());
 }
 
 OPENMPT_WINESUPPORT_API void OPENMPT_WINESUPPORT_CALL OpenMPT_SoundDevice_GetEffectiveBufferAttributes( const OpenMPT_SoundDevice * sd, OpenMPT_SoundDevice_BufferAttributes * result ) {
@@ -433,29 +503,22 @@ typedef struct OpenMPT_PriorityBooster {
 #endif
 } OpenMPT_PriorityBooster;
 
-OPENMPT_WINESUPPORT_API OpenMPT_PriorityBooster * OPENMPT_WINESUPPORT_CALL OpenMPT_PriorityBooster_Construct( uintptr_t active, uintptr_t realtime, uintptr_t niceness, uintptr_t rt_priority ) {
-#if !MPT_OS_WINDOWS
-	OpenMPT_PriorityBooster * pb = (OpenMPT_PriorityBooster*)OpenMPT_Alloc( sizeof( OpenMPT_PriorityBooster ) );
-	pb->impl = new OPENMPT_NAMESPACE::SoundDevice::ThreadPriorityGuard(active, realtime, niceness, rt_priority);
-	return pb;
-#else
-	MPT_UNREFERENCED_PARAMETER(active);
-	MPT_UNREFERENCED_PARAMETER(realtime);
-	MPT_UNREFERENCED_PARAMETER(niceness);
-	MPT_UNREFERENCED_PARAMETER(rt_priority);
-	return nullptr;
-#endif
-}
-
 OPENMPT_WINESUPPORT_API OpenMPT_PriorityBooster * OPENMPT_WINESUPPORT_CALL OpenMPT_PriorityBooster_Construct_From_SoundDevice( const OpenMPT_SoundDevice * sd ) {
 #if !MPT_OS_WINDOWS
 	OpenMPT_PriorityBooster * pb = (OpenMPT_PriorityBooster*)OpenMPT_Alloc( sizeof( OpenMPT_PriorityBooster ) );
-	pb->impl = new OPENMPT_NAMESPACE::SoundDevice::ThreadPriorityGuard
-		( dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetSettings().BoostThreadPriority
-		, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetAppInfo().BoostedThreadRealtimePosix
-		, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetAppInfo().BoostedThreadNicenessPosix
-		, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetAppInfo().BoostedThreadRtprioPosix
-		);
+	try {
+		pb->impl = new OPENMPT_NAMESPACE::SoundDevice::ThreadPriorityGuard
+			( dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetLogger()
+			, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetSettings().BoostThreadPriority
+			, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetAppInfo().BoostedThreadRealtimePosix
+			, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetAppInfo().BoostedThreadNicenessPosix
+			, dynamic_cast<OPENMPT_NAMESPACE::SoundDevice::Base*>(sd->impl)->GetAppInfo().BoostedThreadRtprioPosix
+			);
+	}	catch (mpt::out_of_memory e) {
+		mpt::delete_out_of_memory( e );
+		OpenMPT_Free( pb );
+		return nullptr;
+	}
 	return pb;
 #else
 	MPT_UNREFERENCED_PARAMETER(sd);

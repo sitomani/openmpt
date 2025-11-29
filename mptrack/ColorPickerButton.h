@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 #include "../soundlib/Snd_defs.h"
 
 OPENMPT_NAMESPACE_BEGIN
@@ -21,12 +21,15 @@ class ColorPickerButton : public CButton
 {
 public:
 	void SetColor(COLORREF color);
-	std::optional<COLORREF> PickColor(const CSoundFile &sndFile, CHANNELINDEX chn);
+	std::optional<COLORREF> PickChannelColor(const CSoundFile &sndFile, CHANNELINDEX chn);
+	std::optional<COLORREF> PickPatternColor(const mpt::span<COLORREF> patternColors, PATTERNINDEX pat);
 
 protected:
-	COLORREF m_color = 0;
-
 	void DrawItem(DRAWITEMSTRUCT *dis) override;
+
+	std::optional<COLORREF> PickColor(mpt::span<COLORREF> colors, std::map<COLORREF, int> usedColors);
+
+	COLORREF m_color = 0;
 };
 
 OPENMPT_NAMESPACE_END

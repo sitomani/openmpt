@@ -9,15 +9,25 @@
 
 
 #include "stdafx.h"
-#include "Mptrack.h"
-#include "TuningDialog.h"
-#include "TrackerSettings.h"
-#include <algorithm>
-#include "../common/mptFileIO.h"
-#include "../common/misc_util.h"
 #include "TuningDialog.h"
 #include "FileDialog.h"
 #include "Mainfrm.h"
+#include "Mptrack.h"
+#include "Reporting.h"
+#include "resource.h"
+#include "TrackerSettings.h"
+#include "TuningDialog.h"
+#include "../common/misc_util.h"
+#include "../common/mptFileIO.h"
+#include "mpt/io/base.hpp"
+#include "mpt/io/io.hpp"
+#include "mpt/io/io_stdstream.hpp"
+#include "mpt/io_file/fstream.hpp"
+#include "mpt/io_file/outputfile.hpp"
+#include "mpt/parse/parse.hpp"
+#include "mpt/string/utility.hpp"
+
+#include <algorithm>
 
 
 OPENMPT_NAMESPACE_BEGIN
@@ -36,14 +46,10 @@ using NOTEINDEXTYPE = Tuning::NOTEINDEXTYPE;
 
 // CTuningDialog dialog
 CTuningDialog::CTuningDialog(CWnd* pParent, INSTRUMENTINDEX inst, CSoundFile &csf)
-	: CDialog(CTuningDialog::IDD, pParent),
-	m_sndFile(csf),
-	m_pActiveTuningCollection(NULL),
-	m_TreeCtrlTuning(this),
-	m_TreeItemTuningItemMap(s_notFoundItemTree, s_notFoundItemTuning),
-	m_NoteEditApply(true),
-	m_RatioEditApply(true),
-	m_DoErrorExit(false)
+	: ResizableDialog(IDD_TUNING, pParent)
+	, m_sndFile(csf)
+	, m_TreeCtrlTuning(this)
+	, m_TreeItemTuningItemMap(s_notFoundItemTree, s_notFoundItemTuning)
 {
 	m_TuningCollections.push_back(&(m_sndFile.GetTuneSpecificTunings()));
 	m_TuningCollectionsNames[&(m_sndFile.GetTuneSpecificTunings())] = _T("Tunings");
@@ -147,7 +153,7 @@ void CTuningDialog::DeleteTreeItem(CTuningCollection* pTC)
 
 BOOL CTuningDialog::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	ResizableDialog::OnInitDialog();
 
 	m_EditRatioPeriod.SubclassDlgItem(IDC_EDIT_RATIOPERIOD, this);
 	m_EditRatio.SubclassDlgItem(IDC_EDIT_RATIOVALUE, this);
@@ -343,7 +349,7 @@ void CTuningDialog::UpdateView(const int updateMask)
 
 void CTuningDialog::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	ResizableDialog::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_STATICRATIOMAP, m_RatioMapWnd);
 	DDX_Control(pDX, IDC_COMBO_TTYPE, m_CombobTuningType);
 	DDX_Control(pDX, IDC_EDIT_STEPS, m_EditSteps);
@@ -361,7 +367,7 @@ void CTuningDialog::DoDataExchange(CDataExchange* pDX)
 
 
 
-BEGIN_MESSAGE_MAP(CTuningDialog, CDialog)
+BEGIN_MESSAGE_MAP(CTuningDialog, ResizableDialog)
 	ON_EN_CHANGE(IDC_EDIT_STEPS, &CTuningDialog::OnEnChangeEditSteps)
 	ON_EN_CHANGE(IDC_EDIT_RATIOPERIOD, &CTuningDialog::OnEnChangeEditRatioperiod)
 	ON_EN_CHANGE(IDC_EDIT_NOTENAME, &CTuningDialog::OnEnChangeEditNotename)
@@ -531,7 +537,7 @@ void CTuningDialog::OnBnClickedButtonSetvalues()
 
 		CString buffer;
 		m_EditMiscActions.GetWindowText(buffer);
-		m_pActiveTuning->Multiply(ConvertStrTo<RATIOTYPE>(buffer));
+		m_pActiveTuning->Multiply(mpt::parse<RATIOTYPE>(buffer));
 		m_ModifiedTCs[GetpTuningCollection(m_pActiveTuning)] = true;
 		m_EditMiscActions.SetWindowText(_T(""));
 		m_RatioMapWnd.Invalidate();
@@ -615,8 +621,8 @@ void CTuningDialog::OnBnClickedButtonExport()
 		BeginWaitCursor();
 		try
 		{
-			mpt::SafeOutputFile sfout(dlg.GetFirstFile(), std::ios::binary, mpt::FlushModeFromBool(TrackerSettings::Instance().MiscFlushFileBuffersOnSave));
-			mpt::ofstream &fout = sfout;
+			mpt::IO::SafeOutputFile sfout(dlg.GetFirstFile(), std::ios::binary, mpt::IO::FlushModeFromBool(TrackerSettings::Instance().MiscFlushFileBuffersOnSave));
+			mpt::IO::ofstream &fout = sfout;
 			fout.exceptions(fout.exceptions() | std::ios::badbit | std::ios::failbit);
 
 			if(tuningFilter != -1 && filterIndex == tuningFilter)
@@ -653,9 +659,7 @@ void CTuningDialog::OnBnClickedButtonExport()
 		}
 		if(!m_TuningCollectionsNames[pTC].IsEmpty())
 		{
-			mpt::PathString name = mpt::PathString::FromUnicode(mpt::ToUnicode(m_TuningCollectionsNames[pTC]));
-			SanitizeFilename(name);
-			fileName += name + P_(" - ");
+			fileName += mpt::PathString::FromUnicode(mpt::ToUnicode(m_TuningCollectionsNames[pTC])).AsSanitizedComponent() + P_(" - ");
 		}
 		fileName += P_("%tuning_number% - %tuning_name%");
 
@@ -673,11 +677,11 @@ void CTuningDialog::OnBnClickedButtonExport()
 
 		failure = false;
 
-		auto numberFmt = mpt::FormatSpec().Dec().FillNul().Width(1 + static_cast<int>(std::log10(pTC->GetNumTunings())));
+		auto numberFmt = mpt::format_simple_spec<mpt::ustring>().Dec().FillNul().Width(1 + static_cast<int>(std::log10(pTC->GetNumTunings())));
 
 		for(std::size_t i = 0; i < pTC->GetNumTunings(); ++i)
 		{
-			const CTuning & tuning = pTC->GetTuning(i);
+			const CTuning & tuning = *(pTC->GetTuning(i));
 			fileName = dlg.GetFirstFile();
 			mpt::ustring tuningName = mpt::ToUnicode(tuning.GetName());
 			if(tuningName.empty())
@@ -686,17 +690,17 @@ void CTuningDialog::OnBnClickedButtonExport()
 			}
 			mpt::ustring fileNameW = fileName.ToUnicode();
 			mpt::ustring numberW = mpt::ufmt::fmt(i + 1, numberFmt);
-			SanitizeFilename(numberW);
-			fileNameW = mpt::String::Replace(fileNameW, U_("%tuning_number%"), numberW);
+			numberW = mpt::SanitizePathComponent(numberW);
+			fileNameW = mpt::replace(fileNameW, U_("%tuning_number%"), numberW);
 			mpt::ustring nameW = mpt::ToUnicode(tuningName);
-			SanitizeFilename(nameW);
-			fileNameW = mpt::String::Replace(fileNameW, U_("%tuning_name%"), nameW);
+			nameW = mpt::SanitizePathComponent(nameW);
+			fileNameW = mpt::replace(fileNameW, U_("%tuning_name%"), nameW);
 			fileName = mpt::PathString::FromUnicode(fileNameW);
 
 			try
 			{
-				mpt::SafeOutputFile sfout(fileName, std::ios::binary, mpt::FlushModeFromBool(TrackerSettings::Instance().MiscFlushFileBuffersOnSave));
-				mpt::ofstream &fout = sfout;
+				mpt::IO::SafeOutputFile sfout(fileName, std::ios::binary, mpt::IO::FlushModeFromBool(TrackerSettings::Instance().MiscFlushFileBuffersOnSave));
+				mpt::IO::ofstream &fout = sfout;
 				fout.exceptions(fout.exceptions() | std::ios::badbit | std::ios::failbit);
 				if(tuning.Serialize(fout) != Tuning::SerializationResult::Success)
 				{
@@ -760,7 +764,7 @@ template <typename Tfile, std::size_t N> static bool CheckMagic(Tfile &f, mpt::I
 
 void CTuningDialog::OnBnClickedButtonImport()
 {
-	std::string sFilter = MPT_FORMAT("Tuning files (*{}, *{}, *.scl)|*{};*{};*.scl|")(
+	std::string sFilter = MPT_AFORMAT("Tuning files (*{}, *{}, *.scl)|*{};*{};*.scl|")(
 		CTuning::s_FileExtension,
 		CTuningCollection::s_FileExtension,
 		CTuning::s_FileExtension,
@@ -782,14 +786,14 @@ void CTuningDialog::OnBnClickedButtonImport()
 	{
 		mpt::PathString fileName;
 		mpt::PathString fileExt;
-		file.SplitPath(nullptr, nullptr, &fileName, &fileExt);
+		file.SplitPath(nullptr, nullptr, nullptr, &fileName, &fileExt);
 		const mpt::ustring fileNameExt = (fileName + fileExt).ToUnicode();
 
-		const bool bIsTun = (mpt::PathString::CompareNoCase(fileExt, mpt::PathString::FromUTF8(CTuning::s_FileExtension)) == 0);
-		const bool bIsScl = (mpt::PathString::CompareNoCase(fileExt, P_(".scl")) == 0);
-		const bool bIsTc = (mpt::PathString::CompareNoCase(fileExt, mpt::PathString::FromUTF8(CTuningCollection::s_FileExtension)) == 0);
+		const bool bIsTun = (mpt::PathCompareNoCase(fileExt, mpt::PathString::FromUTF8(CTuning::s_FileExtension)) == 0);
+		const bool bIsScl = (mpt::PathCompareNoCase(fileExt, P_(".scl")) == 0);
+		//const bool bIsTc = (mpt::PathCompareNoCase(fileExt, mpt::PathString::FromUTF8(CTuningCollection::s_FileExtension)) == 0);
 
-		mpt::ifstream fin(file, std::ios::binary);
+		mpt::IO::ifstream fin(file, std::ios::binary);
 
 		// "HSCT", 0x01, 0x00, 0x00, 0x00
 		const uint8 magicTColdV1 [] = {  'H', 'S', 'C', 'T',0x01,0x00,0x00,0x00                          };
@@ -822,7 +826,7 @@ void CTuningDialog::OnBnClickedButtonImport()
 				if(pTC->GetNumTunings() == 1)
 				{
 					Reporting::Message(LogInformation, U_("- Tuning Collection with a Tuning file extension (.tun) detected. It only contains a single Tuning, importing the file as a Tuning.\n"), this);
-					pT = std::unique_ptr<CTuning>(new CTuning(pTC->GetTuning(0)));
+					pT = std::unique_ptr<CTuning>(new CTuning(*(pTC->GetTuning(0))));
 					delete pTC;
 					pTC = nullptr;
 					// ok
@@ -932,7 +936,7 @@ void CTuningDialog::OnEnKillfocusEditFinetunesteps()
 	{
 		CString buffer;
 		m_EditFineTuneSteps.GetWindowText(buffer);
-		m_pActiveTuning->SetFineStepCount(ConvertStrTo<Tuning::USTEPINDEXTYPE>(buffer));
+		m_pActiveTuning->SetFineStepCount(mpt::parse<Tuning::USTEPINDEXTYPE>(buffer));
 		m_EditFineTuneSteps.SetWindowText(mpt::cfmt::val(m_pActiveTuning->GetFineStepCount()));
 		m_ModifiedTCs[GetpTuningCollection(m_pActiveTuning)] = true;
 		m_EditFineTuneSteps.Invalidate();
@@ -960,7 +964,7 @@ void CTuningDialog::OnEnKillfocusEditSteps()
 	{
 		CString buffer;
 		m_EditSteps.GetWindowText(buffer);
-		m_pActiveTuning->ChangeGroupsize(ConvertStrTo<UNOTEINDEXTYPE>(buffer));
+		m_pActiveTuning->ChangeGroupsize(mpt::parse<UNOTEINDEXTYPE>(buffer));
 		m_ModifiedTCs[GetpTuningCollection(m_pActiveTuning)] = true;
 		UpdateView(UM_TUNINGDATA);
 	}
@@ -1449,7 +1453,7 @@ void CTuningDialog::OnOK()
 	if(GetKeyState(VK_RETURN) <= -127 && GetFocus() != GetDlgItem(IDOK))
 		return;
 	else
-		CDialog::OnOK();
+		ResizableDialog::OnOK();
 }
 
 
@@ -1554,7 +1558,7 @@ CTuningDialog::EnSclImport CTuningDialog::ImportScl(const mpt::PathString &filen
 {
 	MPT_ASSERT(result == nullptr);
 	result = nullptr;
-	mpt::ifstream iStrm(filename, std::ios::in | std::ios::binary);
+	mpt::IO::ifstream iStrm(filename, std::ios::in | std::ios::binary);
 	if(!iStrm)
 	{
 		return enSclImportFailUnableToOpenFile;
@@ -1580,15 +1584,15 @@ CTuningDialog::EnSclImport CTuningDialog::ImportScl(std::istream& iStrm, const m
 			break;
 		if(first)
 		{
-			filename = mpt::String::Trim(str.substr(start + 1), std::string(" \t\r\n"));
+			filename = mpt::trim(str.substr(start + 1), std::string(" \t\r\n"));
 		}
 		first = false;
 	}
-	std::string description = mpt::String::Trim(str, std::string(" \t\r\n"));
+	std::string description = mpt::trim(str, std::string(" \t\r\n"));
 
 	SkipCommentLines(iStrm, str);
 	// str should now contain number of notes.
-	const size_t nNotes = 1 + ConvertStrTo<size_t>(str.c_str());
+	const size_t nNotes = 1 + mpt::parse<size_t>(str.c_str());
 	if (nNotes - 1 > s_nSclImportMaxNoteCount)
 		return enSclImportFailTooManyNotes;
 
@@ -1624,15 +1628,15 @@ CTuningDialog::EnSclImport CTuningDialog::ImportScl(std::istream& iStrm, const m
 
 		if (*pNonDigit == '.') // Reading cents
 		{
-			SclFloat fCent = ConvertStrTo<SclFloat>(psz);
+			SclFloat fCent = mpt::parse<SclFloat>(psz);
 			fRatios.push_back(static_cast<Tuning::RATIOTYPE>(CentToRatio(fCent)));
 		}
 		else if (*pNonDigit == '/') // Reading ratios
 		{
 			*pNonDigit = 0; // Replace '/' with null.
-			int64 nNum = ConvertStrTo<int64>(psz);
+			int64 nNum = mpt::parse<int64>(psz);
 			psz = pNonDigit + 1;
-			int64 nDenom = ConvertStrTo<int64>(psz);
+			int64 nDenom = mpt::parse<int64>(psz);
 
 			if (nNum > int32_max || nDenom > int32_max)
 				return enSclImportFailTooLargeNumDenomIntegers;
@@ -1642,10 +1646,10 @@ CTuningDialog::EnSclImport CTuningDialog::ImportScl(std::istream& iStrm, const m
 			fRatios.push_back(static_cast<Tuning::RATIOTYPE>((SclFloat)nNum / (SclFloat)nDenom));
 		}
 		else // Plain numbers.
-			fRatios.push_back(static_cast<Tuning::RATIOTYPE>(ConvertStrTo<int32>(psz)));
+			fRatios.push_back(static_cast<Tuning::RATIOTYPE>(mpt::parse<int32>(psz)));
 
 		std::string remainder = psz;
-		remainder = mpt::String::Trim(remainder, std::string("\r\n"));
+		remainder = mpt::trim(remainder, std::string("\r\n"));
 		if(remainder.find_first_of(" \t") != std::string::npos)
 		{
 			remainder = remainder.substr(remainder.find_first_of(" \t"));
@@ -1653,13 +1657,13 @@ CTuningDialog::EnSclImport CTuningDialog::ImportScl(std::istream& iStrm, const m
 		{
 			remainder = std::string();
 		}
-		remainder = mpt::String::Trim(remainder, std::string(" \t"));
+		remainder = mpt::trim(remainder, std::string(" \t"));
 		if(!remainder.empty())
 		{
 			if(remainder[0] == '!')
 			{
 				remainder = remainder.substr(1);
-				remainder = mpt::String::Trim(remainder, std::string(" \t"));
+				remainder = mpt::trim(remainder, std::string(" \t"));
 			}
 		}
 		if(mpt::ToLowerCaseAscii(remainder) == "cents" || mpt::ToLowerCaseAscii(remainder) == "cent")
@@ -1703,16 +1707,13 @@ CTuningDialog::EnSclImport CTuningDialog::ImportScl(std::istream& iStrm, const m
 		return enSclImportTuningCreationFailure;
 	}
 
-	bool allNamesEmpty = true;
 	bool allNamesValid = true;
 	for(NOTEINDEXTYPE note = 0; note < mpt::saturate_cast<NOTEINDEXTYPE>(names.size()); ++note)
 	{
 		if(names[note].empty())
 		{
 			allNamesValid = false;
-		} else
-		{
-			allNamesEmpty = false;
+			break;
 		}
 	}
 

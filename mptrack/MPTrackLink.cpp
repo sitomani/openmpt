@@ -16,7 +16,9 @@ OPENMPT_NAMESPACE_BEGIN
 #if defined(MPT_BUILD_MSVC)
 #if MPT_COMPILER_MSVC || MPT_COMPILER_CLANG
 
+#if MPT_WINNT_AT_LEAST(MPT_WIN_VISTA)
 #pragma comment(lib, "delayimp.lib")
+#endif
 
 #pragma comment(lib, "version.lib")
 #pragma comment(lib, "rpcrt4.lib")
@@ -33,7 +35,12 @@ OPENMPT_NAMESPACE_BEGIN
 #pragma comment(lib, "dmoguids.lib")
 #pragma comment(lib, "strmiids.lib")
 
+#if MPT_WINNT_AT_LEAST(MPT_WIN_VISTA)
 #pragma comment(lib, "avrt.lib")
+#endif
+#if defined(MPT_WITH_DIRECTSOUND)
+#pragma comment(lib, "dsound.lib")
+#endif // MPT_WITH_DIRECTSOUND
 #pragma comment(lib, "winmm.lib")
 
 #pragma comment(lib, "ksuser.lib")
@@ -53,9 +60,7 @@ OPENMPT_NAMESPACE_BEGIN
 #endif
 #endif
 
-#if MPT_COMPILER_MSVC
 #pragma comment( linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df'\"" )
-#endif // MPT_COMPILER_MSVC
 
 #endif // MPT_COMPILER_MSVC || MPT_COMPILER_CLANG
 #endif // MPT_BUILD_MSVC

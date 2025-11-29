@@ -9,139 +9,194 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
-#include "Sndfile.h"
-#include "../soundbase/SampleFormat.h"
-#include "../soundbase/SampleFormatConverters.h"
-#include "../soundbase/SampleFormatCopy.h"
-#include "../soundbase/SampleBuffer.h"
-#include "../soundbase/Dither.h"
+#include "mpt/audio/span.hpp"
+#include "mpt/base/macros.hpp"
+#include "mpt/string/types.hpp"
+#include "openmpt/soundbase/SampleFormat.hpp"
+#include "openmpt/soundbase/CopyMix.hpp"
+#include "openmpt/soundbase/Dither.hpp"
+#include "openmpt/soundbase/DitherModPlug.hpp"
+#include "openmpt/soundbase/DitherNone.hpp"
+#include "openmpt/soundbase/DitherSimple.hpp"
+
 #include "MixerLoops.h"
 #include "Mixer.h"
+#include "Sndfile.h"
+
+#include <type_traits>
+#include <variant>
+
+#include <cstddef>
 
 
 OPENMPT_NAMESPACE_BEGIN
 
 
-template<typename Tbuffer>
-class AudioReadTargetBuffer
-	: public IAudioReadTarget
+using Dither_Default = Dither_Simple;
+
+
+class DitherNamesOpenMPT
 {
-private:
-	std::size_t countRendered;
-	Dither &dither;
-protected:
-	Tbuffer outputBuffer;
 public:
-	AudioReadTargetBuffer(Tbuffer buf, Dither &dither_)
-		: countRendered(0)
-		, dither(dither_)
-		, outputBuffer(buf)
+	static mpt::ustring GetModeName(std::size_t mode)
 	{
-		MPT_ASSERT(SampleFormat(SampleFormatTraits<typename Tbuffer::sample_type>::sampleFormat()).IsValid());
-	}
-	std::size_t GetRenderedCount() const { return countRendered; }
-public:
-	void DataCallback(MixSampleInt *MixSoundBuffer, std::size_t channels, std::size_t countChunk) override
-	{
-		dither.WithDither(
-			[&](auto &ditherInstance)
-			{
-				ConvertBufferMixFixedToBuffer<MixSampleIntTraits::mix_fractional_bits(), false>(advance_audio_buffer(outputBuffer, countRendered), audio_buffer_interleaved<MixSampleInt>(MixSoundBuffer, channels, countChunk), ditherInstance, channels, countChunk);
-			}
-		);
-		countRendered += countChunk;
-	}
-	void DataCallback(MixSampleFloat *MixSoundBuffer, std::size_t channels, std::size_t countChunk) override
-	{
-		dither.WithDither(
-			[&](auto &ditherInstance)
-			{
-				ConvertBufferMixFloatToBuffer<false>(advance_audio_buffer(outputBuffer, countRendered), audio_buffer_interleaved<MixSampleFloat>(MixSoundBuffer, channels, countChunk), ditherInstance, channels, countChunk);
-			}
-		);
-		countRendered += countChunk;
+		mpt::ustring result;
+		switch(mode)
+		{
+			case 0:
+				// no dither
+				result = MPT_USTRING("no");
+				break;
+			case 1:
+				// chosen by OpenMPT code, might change
+				result = MPT_USTRING("default");
+				break;
+			case 2:
+				// rectangular, 0.5 bit depth, no noise shaping (original ModPlug Tracker)
+				result = MPT_USTRING("0.5 bit");
+				break;
+			case 3:
+				// rectangular, 1 bit depth, simple 1st order noise shaping
+				result = MPT_USTRING("1 bit");
+				break;
+			default:
+				result = MPT_USTRING("");
+				break;
+		}
+		return result;
 	}
 };
 
 
-#if defined(LIBOPENMPT_BUILD)
+using DithersOpenMPT =
+	Dithers<std::variant<MultiChannelDither<Dither_None>, MultiChannelDither<Dither_Default>, MultiChannelDither<Dither_ModPlug>, MultiChannelDither<Dither_Simple>>, DitherNamesOpenMPT, 4, 1, 0, mpt::good_prng>;
 
 
-template<typename Tsample>
-void ApplyGainBeforeConversionIfAppropriateFixed(MixSampleInt *MixSoundBuffer, std::size_t channels, std::size_t countChunk, float gainFactor)
+struct DithersWrapperOpenMPT
+	: DithersOpenMPT
 {
-	// Apply final output gain for non floating point output
-	ApplyGain(MixSoundBuffer, channels, countChunk, mpt::saturate_round<int32>(gainFactor * (1<<16)));
-}
-template<>
-void ApplyGainBeforeConversionIfAppropriateFixed<float>(MixSampleInt * /*MixSoundBuffer*/, std::size_t /*channels*/, std::size_t /*countChunk*/, float /*gainFactor*/)
-{
-	// nothing
-}
+	template <typename Trd>
+	DithersWrapperOpenMPT(Trd &rd, std::size_t mode = DithersOpenMPT::DefaultDither, std::size_t channels = DithersOpenMPT::DefaultChannels)
+		: DithersOpenMPT(rd, mode, channels)
+	{
+		return;
+	}
+};
 
-template<typename Tsample>
-void ApplyGainAfterConversionIfAppropriateFixed(audio_buffer_interleaved<Tsample> /*buffer*/, std::size_t /*countRendered*/, std::size_t /*channels*/, std::size_t /*countChunk*/, float /*gainFactor*/)
-{
-	// nothing
-}
-template<typename Tsample>
-void ApplyGainAfterConversionIfAppropriateFixed(audio_buffer_planar<Tsample> /*buffer*/, std::size_t /*countRendered*/, std::size_t /*channels*/, std::size_t /*countChunk*/, float /*gainFactor*/)
-{
-	// nothing
-}
-template<>
-void ApplyGainAfterConversionIfAppropriateFixed<float>(audio_buffer_interleaved<float> buffer, std::size_t countRendered, std::size_t channels, std::size_t countChunk, float gainFactor)
-{
-	// Apply final output gain for floating point output after conversion so we do not suffer underflow or clipping
-	ApplyGain(buffer, countRendered, channels, countChunk, gainFactor);
-}
-template<>
-void ApplyGainAfterConversionIfAppropriateFixed<float>(audio_buffer_planar<float> buffer, std::size_t countRendered, std::size_t channels, std::size_t countChunk, float gainFactor)
-{
-	// Apply final output gain for floating point output after conversion so we do not suffer underflow or clipping
-	ApplyGain(buffer, countRendered, channels, countChunk, gainFactor);
-}
 
-inline void ApplyGainBeforeConversionIfAppropriateFloat(MixSampleFloat *MixSoundBuffer, std::size_t channels, std::size_t countChunk, float gainFactor)
-{
-	// Apply final output gain for non floating point output
-	ApplyGain(MixSoundBuffer, channels, countChunk, gainFactor);
-}
-
-template<typename Tbuffer>
-class AudioReadTargetGainBuffer
-	: public AudioReadTargetBuffer<Tbuffer>
+template <typename Taudio_span, typename TDithers = DithersOpenMPT>
+class AudioTargetBuffer
+	: public IAudioTarget
 {
 private:
-	typedef AudioReadTargetBuffer<Tbuffer> Tbase;
-private:
-	const float gainFactor;
+	std::size_t countRendered;
+	TDithers &dithers;
+protected:
+	Taudio_span outputBuffer;
 public:
-	AudioReadTargetGainBuffer(Tbuffer buf, Dither &dither, float gainFactor_)
-		: Tbase(buf, dither)
-		, gainFactor(gainFactor_)
+	AudioTargetBuffer(Taudio_span buf, TDithers &dithers_)
+		: countRendered(0)
+		, dithers(dithers_)
+		, outputBuffer(buf)
+	{
+		return;
+	}
+	std::size_t GetRenderedCount() const { return countRendered; }
+public:
+	void Process(mpt::audio_span_interleaved<MixSampleInt> buffer) override
+	{
+		std::visit(
+			[&](auto &ditherInstance)
+			{
+				ConvertBufferMixInternalFixedToBuffer<MixSampleIntTraits::mix_fractional_bits, false>(mpt::make_audio_span_with_offset(outputBuffer, countRendered), buffer, ditherInstance, buffer.size_channels(), buffer.size_frames());
+			},
+			dithers.Variant()
+		);
+		countRendered += buffer.size_frames();
+	}
+	void Process(mpt::audio_span_interleaved<MixSampleFloat> buffer) override
+	{
+		std::visit(
+			[&](auto &ditherInstance)
+			{
+				ConvertBufferMixInternalToBuffer<false>(mpt::make_audio_span_with_offset(outputBuffer, countRendered), buffer, ditherInstance, buffer.size_channels(), buffer.size_frames());
+			},
+			dithers.Variant()
+		);
+		countRendered += buffer.size_frames();
+	}
+};
+
+
+template <typename Taudio_span, typename TDithers = DithersOpenMPT>
+class AudioTargetBufferWithGain
+	: public AudioTargetBuffer<Taudio_span>
+{
+private:
+	using Tbase = AudioTargetBuffer<Taudio_span>;
+private:
+	const MixSampleFloat gainFactor;
+public:
+	AudioTargetBufferWithGain(Taudio_span buf, TDithers &dithers, float gainFactor_)
+		: Tbase(buf, dithers)
+		, gainFactor(static_cast<MixSampleFloat>(gainFactor_))
 	{
 		return;
 	}
 public:
-	void DataCallback(MixSampleInt *MixSoundBuffer, std::size_t channels, std::size_t countChunk) override
+	void Process(mpt::audio_span_interleaved<MixSampleInt> buffer) override
 	{
 		const std::size_t countRendered_ = Tbase::GetRenderedCount();
-		ApplyGainBeforeConversionIfAppropriateFixed<typename Tbuffer::sample_type>(MixSoundBuffer, channels, countChunk, gainFactor);
-		Tbase::DataCallback(MixSoundBuffer, channels, countChunk);
-		ApplyGainAfterConversionIfAppropriateFixed<typename Tbuffer::sample_type>(Tbase::outputBuffer, countRendered_, channels, countChunk, gainFactor);
+		if constexpr(!std::is_floating_point<typename Taudio_span::sample_type>::value)
+		{
+			int32 gainFactor16_16 = mpt::saturate_round<int32>(gainFactor * (1 << 16));
+			if(gainFactor16_16 != (1<<16))
+			{
+				// only apply gain when != +/- 0dB
+				// no clipping prevention is done here
+				for(std::size_t frame = 0; frame < buffer.size_frames(); ++frame)
+				{
+					for(std::size_t channel = 0; channel < buffer.size_channels(); ++channel)
+					{
+						buffer(channel, frame) = Util::muldiv(buffer(channel, frame), gainFactor16_16, 1 << 16);
+					}
+				}
+			}
+		}
+		Tbase::Process(buffer);
+		if constexpr(std::is_floating_point<typename Taudio_span::sample_type>::value)
+		{
+			if(gainFactor != MixSampleFloat(1.0))
+			{
+				// only apply gain when != +/- 0dB
+				for(std::size_t frame = 0; frame < buffer.size_frames(); ++frame)
+				{
+					for(std::size_t channel = 0; channel < buffer.size_channels(); ++channel)
+					{
+						Tbase::outputBuffer(channel, countRendered_ + frame) *= static_cast<typename Taudio_span::sample_type>(gainFactor);
+					}
+				}
+			}
+		}
 	}
-	void DataCallback(MixSampleFloat *MixSoundBuffer, std::size_t channels, std::size_t countChunk) override
+	void Process(mpt::audio_span_interleaved<MixSampleFloat> buffer) override
 	{
-		ApplyGainBeforeConversionIfAppropriateFloat(MixSoundBuffer, channels, countChunk, gainFactor);
-		Tbase::DataCallback(MixSoundBuffer, channels, countChunk);
+		if(gainFactor != MixSampleFloat(1.0))
+		{
+			// only apply gain when != +/- 0dB
+			for(std::size_t frame = 0; frame < buffer.size_frames(); ++frame)
+			{
+				for(std::size_t channel = 0; channel < buffer.size_channels(); ++channel)
+				{
+					buffer(channel, frame) *= gainFactor;
+				}
+			}
+		}
+		Tbase::Process(buffer);
 	}
 };
-
-
-#endif // LIBOPENMPT_BUILD
 
 
 OPENMPT_NAMESPACE_END

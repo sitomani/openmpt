@@ -10,9 +10,10 @@
 
 
 #include "stdafx.h"
-#include "Moddoc.h"
-#include "Mainfrm.h"
 #include "Undo.h"
+#include "Moddoc.h"
+#include "TrackerSettings.h"
+#include "UpdateHints.h"
 #include "../common/mptStringBuffer.h"
 #include "../tracklib/SampleEdit.h"
 #include "../soundlib/modsmp_ctrl.h"
@@ -20,9 +21,35 @@
 
 OPENMPT_NAMESPACE_BEGIN
 
+static constexpr size_t MAX_UNDO_LEVEL = 100000;  // 100,000 undo steps for each undo type!
+
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Pattern Undo Functions
+
+
+struct CPatternUndo::UndoInfo
+{
+	std::vector<ModChannelSettings> channelInfo;  // Optional old channel information (pan / volume / etc.)
+	std::vector<ModCommand> content;              // Rescued pattern content
+	const char *description;                      // Name of this undo action
+	ROWINDEX numPatternRows;                      // Original number of pattern rows (in case of resize, DELETE_PATTERN in case of deletion)
+	ROWINDEX firstRow, numRows;
+	PATTERNINDEX pattern;
+	CHANNELINDEX firstChannel, numChannels;
+	bool linkToPrevious;  // This undo information is linked with the previous undo information
+
+	bool OnlyChannelSettings() const noexcept
+	{
+		return !channelInfo.empty() && numRows < 1 && !linkToPrevious;
+	}
+};
+
+
+CPatternUndo::CPatternUndo(CModDoc &parent) : modDoc{parent} {}
+
+
+CPatternUndo::~CPatternUndo() {}
 
 
 // Remove all undo steps.
@@ -54,7 +81,7 @@ bool CPatternUndo::PrepareUndo(PATTERNINDEX pattern, CHANNELINDEX firstChn, ROWI
 }
 
 
-bool CPatternUndo::PrepareChannelUndo(CHANNELINDEX firstChn, CHANNELINDEX numChns, const char* description)
+bool CPatternUndo::PrepareChannelUndo(CHANNELINDEX firstChn, CHANNELINDEX numChns, const char *description)
 {
 	return PrepareUndo(PATTERNINDEX_INVALID, firstChn, 0, numChns, 0, description, false, true);
 }
@@ -64,6 +91,11 @@ bool CPatternUndo::PrepareBuffer(undobuf_t &buffer, PATTERNINDEX pattern, CHANNE
 {
 	const CSoundFile &sndFile = modDoc.GetSoundFile();
 	const bool onlyChannelInfo = storeChannelInfo && numRows < 1;
+
+	if(storeChannelInfo && pattern != PATTERNINDEX_INVALID && firstChn == 0 && numChns != sndFile.GetNumChannels())
+	{
+		numChns = sndFile.GetNumChannels();
+	}
 
 	ROWINDEX patRows = 0;
 	if(sndFile.Patterns.IsValidPat(pattern))
@@ -120,12 +152,13 @@ bool CPatternUndo::PrepareBuffer(undobuf_t &buffer, PATTERNINDEX pattern, CHANNE
 
 	if(storeChannelInfo)
 	{
-		undo.channelInfo.assign(std::begin(sndFile.ChnSettings) + firstChn, std::begin(sndFile.ChnSettings) + firstChn + numChns);
+		undo.channelInfo.assign(sndFile.ChnSettings.begin() + firstChn, sndFile.ChnSettings.begin() + firstChn + numChns);
 	}
 
 	buffer.push_back(std::move(undo));
 
-	modDoc.UpdateAllViews(nullptr, UpdateHint().Undo());
+	if(!linkToPrevious)
+		modDoc.UpdateAllViews(nullptr, UpdateHint().Undo());
 	return true;
 }
 
@@ -170,8 +203,8 @@ PATTERNINDEX CPatternUndo::Undo(undobuf_t &fromBuf, undobuf_t &toBuf, bool linke
 	if(modifyChannels)
 	{
 		const bool modifyChannelCount =
-		    (!onlyChannelSettings && undo.channelInfo.size() != sndFile.GetNumChannels())
-		    || (onlyChannelSettings && (undo.firstChannel + undo.channelInfo.size()) > sndFile.GetNumChannels());
+		    (undo.pattern != PATTERNINDEX_INVALID && undo.channelInfo.size() != sndFile.GetNumChannels())
+		    || (undo.pattern == PATTERNINDEX_INVALID && (undo.firstChannel + undo.channelInfo.size()) > sndFile.GetNumChannels());
 		if(modifyChannelCount)
 		{
 			// Add or remove channels
@@ -254,11 +287,28 @@ PATTERNINDEX CPatternUndo::Undo(undobuf_t &fromBuf, undobuf_t &toBuf, bool linke
 }
 
 
+// Returns true if a channel-specific action (no pattern data) can currently be undone.
+bool CPatternUndo::CanUndoChannelSettings() const
+{
+	return !UndoBuffer.empty() && UndoBuffer.back().OnlyChannelSettings();
+}
+
+
+// Returns true if a channel-specific action (no pattern data) actions can currently be redone.
+bool CPatternUndo::CanRedoChannelSettings() const
+{
+	return !RedoBuffer.empty() && RedoBuffer.back().OnlyChannelSettings();
+}
+
+
 // Public helper function to remove the most recent undo point.
 void CPatternUndo::RemoveLastUndoStep()
 {
-	if(!UndoBuffer.empty())
-		UndoBuffer.pop_back();
+	if(UndoBuffer.empty())
+		return;
+
+	UndoBuffer.pop_back();
+	modDoc.UpdateAllViews(nullptr, UpdateHint().Undo());
 }
 
 
@@ -300,6 +350,29 @@ void CPatternUndo::RearrangePatterns(const std::vector<PATTERNINDEX> &newIndex)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Sample Undo Functions
+
+
+struct CSampleUndo::UndoInfo
+{
+	ModSample OldSample;
+	mpt::charbuf<MAX_SAMPLENAME> oldName;
+	void *samplePtr = nullptr;
+	const char *description = nullptr;
+	SmpLength changeStart = 0, changeEnd = 0;
+	sampleUndoTypes changeType = sundo_none;
+};
+
+
+CSampleUndo::CSampleUndo(CModDoc &parent)
+	: modDoc{parent}
+{
+}
+
+
+CSampleUndo::~CSampleUndo()
+{
+	ClearUndo();
+}
 
 
 // Remove all undo steps for all samples.
@@ -420,7 +493,7 @@ bool CSampleUndo::PrepareBuffer(undobuf_t &buffer, const SAMPLEINDEX smp, sample
 
 #ifdef MPT_ALL_LOGGING
 			const size_t nSize = (GetBufferCapacity(UndoBuffer) + GetBufferCapacity(RedoBuffer) + changeLen * bytesPerSample) >> 10;
-			MPT_LOG(LogDebug, "Undo", MPT_UFORMAT("Sample undo/redo buffer size is now {}.{} MB")(nSize >> 10, (nSize & 1023) * 100 / 1024));
+			MPT_LOG_GLOBAL(LogDebug, "Undo", MPT_UFORMAT("Sample undo/redo buffer size is now {}.{} MB")(nSize >> 10, (nSize & 1023) * 100 / 1024));
 #endif
 
 		}
@@ -550,7 +623,7 @@ bool CSampleUndo::Undo(undobuf_t &fromBuf, undobuf_t &toBuf, const SAMPLEINDEX s
 
 	if(replace)
 	{
-		ctrlSmp::ReplaceSample(sample, pNewSample, undo.OldSample.nLength, sndFile);
+		sample.ReplaceWaveform(pNewSample, undo.OldSample.nLength, sndFile);
 	}
 	sample.PrecomputeLoops(sndFile, true);
 
@@ -587,8 +660,11 @@ void CSampleUndo::DeleteStep(undobuf_t &buffer, const SAMPLEINDEX smp, const siz
 // Public helper function to remove the most recent undo point.
 void CSampleUndo::RemoveLastUndoStep(const SAMPLEINDEX smp)
 {
-	if(!CanUndo(smp)) return;
+	if(!CanUndo(smp))
+		return;
+
 	DeleteStep(UndoBuffer, smp, UndoBuffer[smp - 1].size() - 1);
+	modDoc.UpdateAllViews(nullptr, UpdateHint().Undo());
 }
 
 
@@ -709,6 +785,23 @@ const char *CSampleUndo::GetRedoName(const SAMPLEINDEX smp) const
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Instrument Undo Functions
+
+
+struct CInstrumentUndo::UndoInfo
+{
+	ModInstrument instr;
+	const char *description = nullptr;
+	EnvelopeType editedEnvelope = ENV_MAXTYPES;
+};
+
+
+CInstrumentUndo::CInstrumentUndo(CModDoc &parent) : modDoc{parent} {}
+
+
+CInstrumentUndo::~CInstrumentUndo()
+{
+	ClearUndo();
+}
 
 
 // Remove all undo steps for all instruments.

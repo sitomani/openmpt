@@ -11,11 +11,12 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
 
 #include "../common/misc_util.h"
-#include "../common/mptMutex.h"
+#include "mpt/mutex/mutex.hpp"
+#include "mpt/parse/parse.hpp"
 
 #include <map>
 #include <set>
@@ -246,10 +247,10 @@ template<> inline SettingValue ToSettingValue(const float &val) { return Setting
 template<> inline float FromSettingValue(const SettingValue &val) { return float(val.as<double>()); }
 
 template<> inline SettingValue ToSettingValue(const int64 &val) { return SettingValue(mpt::ufmt::dec(val), "int64"); }
-template<> inline int64 FromSettingValue(const SettingValue &val) { return ConvertStrTo<int64>(val.as<mpt::ustring>()); }
+template<> inline int64 FromSettingValue(const SettingValue &val) { return mpt::parse<int64>(val.as<mpt::ustring>()); }
 
 template<> inline SettingValue ToSettingValue(const uint64 &val) { return SettingValue(mpt::ufmt::dec(val), "uint64"); }
-template<> inline uint64 FromSettingValue(const SettingValue &val) { return ConvertStrTo<uint64>(val.as<mpt::ustring>()); }
+template<> inline uint64 FromSettingValue(const SettingValue &val) { return mpt::parse<uint64>(val.as<mpt::ustring>()); }
 
 template<> inline SettingValue ToSettingValue(const uint32 &val) { return SettingValue(int32(val)); }
 template<> inline uint32 FromSettingValue(const SettingValue &val) { return uint32(val.as<int32>()); }
@@ -420,12 +421,6 @@ protected:
 	virtual ~ISettingChanged() = default;
 };
 
-enum SettingFlushMode
-{
-	SettingWriteBack    = 0,
-	SettingWriteThrough = 1,
-};
-
 // SettingContainer basically represents a frontend to 1 or 2 backends (e.g. ini files or registry subtrees) for a collection of configuration settings.
 // SettingContainer provides basic read/write access to individual setting. The values are cached and only flushed on destruction or explicit flushs.
 class SettingsContainer
@@ -442,7 +437,6 @@ private:
 private:
 	ISettingsBackend *backend;
 private:
-	bool immediateFlush = false;
 	SettingValue BackendsReadSetting(const SettingPath &path, const SettingValue &def) const;
 	void BackendsWriteSetting(const SettingPath &path, const SettingValue &val);
 	void BackendsRemoveSetting(const SettingPath &path);
@@ -450,7 +444,7 @@ private:
 	void NotifyListeners(const SettingPath &path);
 	SettingValue ReadSetting(const SettingPath &path, const SettingValue &def) const;
 	bool IsDefaultSetting(const SettingPath &path) const;
-	void WriteSetting(const SettingPath &path, const SettingValue &val, SettingFlushMode flushMode);
+	void WriteSetting(const SettingPath &path, const SettingValue &val);
 	void ForgetSetting(const SettingPath &path);
 	void RemoveSetting(const SettingPath &path);
 	void RemoveSection(const mpt::ustring &section);
@@ -459,7 +453,6 @@ private:
 	SettingsContainer& operator = (const SettingsContainer &other); // disable
 public:
 	SettingsContainer(ISettingsBackend *backend);
-	void SetImmediateFlush(bool newImmediateFlush);
 	template <typename T>
 	T Read(const SettingPath &path, const T &def = T()) const
 	{
@@ -479,14 +472,14 @@ public:
 		return IsDefaultSetting(SettingPath(std::move(section), std::move(key)));
 	}
 	template <typename T>
-	void Write(const SettingPath &path, const T &val, SettingFlushMode flushMode = SettingWriteBack)
+	void Write(const SettingPath &path, const T &val)
 	{
-		WriteSetting(path, ToSettingValue<T>(val), flushMode);
+		WriteSetting(path, ToSettingValue<T>(val));
 	}
 	template <typename T>
-	void Write(mpt::ustring section, mpt::ustring key, const T &val, SettingFlushMode flushMode = SettingWriteBack)
+	void Write(mpt::ustring section, mpt::ustring key, const T &val)
 	{
-		WriteSetting(SettingPath(std::move(section), std::move(key)), ToSettingValue<T>(val), flushMode);
+		WriteSetting(SettingPath(std::move(section), std::move(key)), ToSettingValue<T>(val));
 	}
 	void Forget(const SettingPath &path)
 	{
@@ -657,7 +650,7 @@ public:
 	}
 	bool IsDefault() const
 	{
-		conf.IsDefault(path);
+		return conf.IsDefault(path);
 	}
 	CachedSetting & Update()
 	{

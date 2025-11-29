@@ -10,9 +10,12 @@
 
 #include "stdafx.h"
 #include "IPCWindow.h"
+#include "Mainfrm.h"
+#include "ModDocTemplate.h"
+#include "Mptrack.h"
+#include "MPTrackUtil.h"
 
 #include "../common/version.h"
-#include "Mptrack.h"
 
 
 OPENMPT_NAMESPACE_BEGIN
@@ -36,7 +39,7 @@ namespace IPCWindow
 					std::size_t count = copyData.cbData / sizeof(WCHAR);
 					const WCHAR* data = static_cast<const WCHAR *>(copyData.lpData);
 					const std::wstring name = std::wstring(data, data + count);
-					result = theApp.OpenDocumentFile(mpt::PathString::FromWide(name).AsNative().c_str()) ? 1 : 0;
+					result = theApp.OpenDocumentFile(mpt::PathString::FromWide(name).AsNative().c_str()) ? 1 : 2;
 				}
 				break;
 			case Function::SetWindowForeground:
@@ -64,7 +67,7 @@ namespace IPCWindow
 			case Function::GetArchitecture:
 				{
 					#if MPT_OS_WINDOWS
-						result = static_cast<int32>(mpt::Windows::GetProcessArchitecture());
+						result = static_cast<int32>(mpt::OS::Windows::GetProcessArchitecture());
 					#else
 						result = -1;
 					#endif
@@ -84,6 +87,13 @@ namespace IPCWindow
 					const WCHAR* data = static_cast<const WCHAR *>(copyData.lpData);
 					const std::wstring path = std::wstring(data, data + count);
 					result = (theApp.GetConfigPath().ToWide() == path) ? 1 : 0;
+				}
+				break;
+			case Function::PlayCurrent:
+				if(CMainFrame::GetMainFrame())
+				{
+					if(CMainFrame::GetMainFrame()->PlayMod(CMainFrame::GetMainFrame()->GetActiveDoc()))
+						result = 1;
 				}
 				break;
 			default:
@@ -120,6 +130,12 @@ namespace IPCWindow
 		ipcWindow = nullptr;
 	}
 
+	void UpdateLastUsed()
+	{
+		if(ipcWindow)
+			SetWindowLongPtr(ipcWindow, GWLP_USERDATA, mpt::saturate_cast<LONG_PTR>(Util::GetTickCount64() / 100));
+	}
+
 	LRESULT SendIPC(HWND ipcWnd, Function function, mpt::const_byte_span data)
 	{
 		if(!ipcWnd)
@@ -137,20 +153,16 @@ namespace IPCWindow
 		return ::SendMessage(ipcWnd, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&copyData));
 	}
 
-	HWND FindIPCWindow()
-	{
-		return ::FindWindow(ClassName, nullptr);
-	}
-
 	struct EnumWindowState
 	{
-		FlagSet<InstanceRequirements> require;
+		uintptr_t lastActive = 0;
 		HWND result = nullptr;
+		FlagSet<InstanceRequirements> require;
 	};
 
 	static BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
 	{
-		EnumWindowState &state = *reinterpret_cast<EnumWindowState*>(lParam);
+		EnumWindowState &state = *reinterpret_cast<EnumWindowState *>(lParam);
 		if(hwnd)
 		{
 			TCHAR className[256];
@@ -168,7 +180,7 @@ namespace IPCWindow
 					}
 					if(state.require[SameArchitecture])
 					{
-						if(SendIPC(hwnd, Function::GetArchitecture) != static_cast<int>(mpt::Windows::GetProcessArchitecture()))
+						if(SendIPC(hwnd, Function::GetArchitecture) != static_cast<int>(mpt::OS::Windows::GetProcessArchitecture()))
 						{
 							return TRUE; // continue
 						}
@@ -187,9 +199,13 @@ namespace IPCWindow
 							return TRUE; // continue
 						}
 					}
-					state.result = hwnd;
+					uintptr_t lastActive = GetWindowLongPtr(hwnd, GWLP_USERDATA);
+					if(!state.result || lastActive >= state.lastActive)
+					{
+						state.result = hwnd;
+						state.lastActive = lastActive;
+					}
 					return TRUE; // continue
-					//return FALSE; // done
 				}
 			}
 		}
@@ -207,28 +223,29 @@ namespace IPCWindow
 		return state.result;
 	}
 
-
-
-	bool SendToIPC(const std::vector<mpt::PathString> &filenames)
+	bool SendToIPC(const std::vector<mpt::PathString> &filenames, bool autoplay)
 	{
 		HWND ipcWnd = FindIPCWindow();
 		if(!ipcWnd)
 		{
 			return false;
 		}
-		bool result = true;
-		for(const auto &filename : filenames)
-		{
-			if(SendIPC(ipcWnd, Function::Open, mpt::as_span(filename.ToWide())) == 0)
-			{
-				result = false;
-			}
-		}
 		DWORD processID = 0;
 		GetWindowThreadProcessId(ipcWnd, &processID);
 		AllowSetForegroundWindow(processID);
 		SendIPC(ipcWnd, Function::SetWindowForeground);
-		return result;
+		for(const auto &filename : filenames)
+		{
+			if(SendIPC(ipcWnd, Function::Open, mpt::as_span(filename.ToWide())) == 0)
+			{
+				return false;
+			}
+		}
+		if(autoplay)
+		{
+			SendIPC(ipcWnd, Function::PlayCurrent);
+		}
+		return true;
 	}
 
 }

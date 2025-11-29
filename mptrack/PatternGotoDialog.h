@@ -10,7 +10,9 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
+#include "DialogBase.h"
+#include "../soundlib/Snd_defs.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -18,9 +20,9 @@ class CSoundFile;
 
 // CPatternGotoDialog dialog
 
-class CPatternGotoDialog : public CDialog
+class CPatternGotoDialog : public DialogBase
 {
-	const CSoundFile &m_SndFile;
+	CSoundFile &m_SndFile;
 	CSpinButtonCtrl m_SpinRow, m_SpinChannel, m_SpinPattern, m_SpinOrder;
 
 public:
@@ -30,20 +32,26 @@ public:
 	ORDERINDEX m_nOrder, m_nActiveOrder;
 
 public:
-	CPatternGotoDialog(CWnd *pParent, ROWINDEX row, CHANNELINDEX chan, PATTERNINDEX pat, ORDERINDEX ord, const CSoundFile &sndFile);
+	CPatternGotoDialog(CWnd *pParent, ROWINDEX row, CHANNELINDEX chan, PATTERNINDEX pat, ORDERINDEX ord, CSoundFile &sndFile);
 	BOOL OnInitDialog() override;
 
 protected:
-	bool m_bControlLock;
-	inline bool ControlsLocked() { return m_bControlLock; }
-	inline void LockControls() { m_bControlLock = true; }
-	inline void UnlockControls() { m_bControlLock = false; }
+	bool m_controlLock = true;
+
+	inline bool ControlsLocked() const { return m_controlLock; }
+	inline void LockControls() { m_controlLock = true; }
+	inline void UnlockControls() { m_controlLock = false; }
+
+	void UpdateNumRows();
+	void UpdateTime();
 
 	void DoDataExchange(CDataExchange* pDX) override;
 	void OnOK() override;
 
 	afx_msg void OnPatternChanged();
 	afx_msg void OnOrderChanged();
+	afx_msg void OnRowChanged();
+	afx_msg void OnTimeChanged();
 
 	DECLARE_MESSAGE_MAP()
 };

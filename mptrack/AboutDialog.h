@@ -9,7 +9,8 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
+#include "DialogBase.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -53,7 +54,7 @@ protected:
 };
 
 
-class CAboutDlg: public CDialog
+class CAboutDlg : public DialogBase
 {
 protected:
 	CRippleBitmap m_bmp;

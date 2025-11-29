@@ -1,9 +1,9 @@
 ---
 -- msc.lua
 -- Interface for the MS C/C++ compiler.
--- Author Jason Perkins
+-- Author Jess Perkins
 -- Modified by Manu Evans
--- Copyright (c) 2009-2015 Jason Perkins and the Premake project
+-- Copyright (c) 2009-2015 Jess Perkins and the Premake project
 ---
 
 
@@ -13,7 +13,20 @@
 	local msc = p.tools.msc
 	local project = p.project
 	local config = p.config
+	local string = require("string")
 
+	-- string comparison `toolset >= "msc-v142"` won't work with "msc-v80"
+	local function isVersionGreaterOrEqualTo(lhs, rhs)
+		if lhs == nil or rhs == nil then
+			return false
+		end
+		lhs = _G.tonumber(string.match(lhs, "^msc%-v([0-9]+)$"))
+		rhs = _G.tonumber(string.match(rhs, "^msc%-v([0-9]+)$"))
+		if lhs == nil or rhs == nil then
+			return false
+		end
+		return lhs >= rhs
+	end
 
 --
 -- Returns list of C preprocessor flags for a configuration.
@@ -28,6 +41,15 @@
 -- Returns list of C compiler flags for a configuration.
 --
 
+	local function getRuntimeFlag(cfg, isstatic)
+		local rt = cfg.runtime
+		local flag = iif(isstatic, "/MT", "/MD")
+		if (rt == "Debug") or (rt == nil and config.isDebugBuild(cfg))  then
+			flag = flag .. "d"
+		end
+		return flag
+	end
+
 	msc.shared = {
 		clr = {
 			On = "/clr",
@@ -35,8 +57,14 @@
 			Pure = "/clr:pure",
 			Safe = "/clr:safe",
 		},
+		compileas = {
+			["C"] = "/TC",
+			["C++"] = "/TP",
+		},
+		fatalwarnings = {
+			All = "/WX"
+		},
 		flags = {
-			FatalCompileWarnings = "/WX",
 			MultiProcessorCompile = "/MP",
 			NoMinimalRebuild = "/Gm-",
 			OmitDefaultLibrary = "/Zl"
@@ -62,6 +90,9 @@
 		intrinsics = {
 			On = "/Oi",
 		},
+		linktimeoptimization = {
+			On = "/GL",
+		},
 		optimize = {
 			Off = "/Od",
 			On = "/Ot",
@@ -78,23 +109,42 @@
 			SSE3 = "/arch:SSE2",
 			SSSE3 = "/arch:SSE2",
 			["SSE4.1"] = "/arch:SSE2",
+			["SSE4.2"] = "/arch:SSE2",
 		},
 		warnings = {
-			Extra = "/W4",
-			High = "/W4",
 			Off = "/W0",
+			High = "/W4",
+			Extra = "/W4",
+			Everything = "/Wall",
+		},
+		externalwarnings = {
+			Off = "/external:W0",
+			Default = "/external:W3",
+			High = "/external:W4",
+			Extra = "/external:W4",
+			Everything = "/external:W4",
+		},
+		externalanglebrackets = {
+			On = "/external:anglebrackets",
 		},
 		staticruntime = {
 			-- this option must always be emit (does it??)
-			_ = function(cfg) return iif(config.isDebugBuild(cfg), "/MDd", "/MD") end,
+			_ = function(cfg) return getRuntimeFlag(cfg, false) end,
 			-- runtime defaults to dynamic in VS
-			Default = function(cfg) return iif(config.isDebugBuild(cfg), "/MDd", "/MD") end,
-			On = function(cfg) return iif(config.isDebugBuild(cfg), "/MTd", "/MT") end,
-			Off = function(cfg) return iif(config.isDebugBuild(cfg), "/MDd", "/MD") end,
+			Default = function(cfg) return getRuntimeFlag(cfg, false) end,
+			On = function(cfg) return getRuntimeFlag(cfg, true) end,
+			Off = function(cfg) return getRuntimeFlag(cfg, false) end,
 		},
 		stringpooling = {
 			On = "/GF",
 			Off = "/GF-",
+		},
+		structmemberalign = {
+			[1] = "/Zp1",
+			[2] = "/Zp2",
+			[4] = "/Zp4",
+			[8] = "/Zp8",
+			[16] = "/Zp16",
 		},
 		symbols = {
 			On = "/Z7"
@@ -104,15 +154,45 @@
 		},
 		omitframepointer = {
 			On = "/Oy"
+		},
+		justmycode = {
+			On = "/JMC",
+			Off = "/JMC-"
+		},
+		openmp = {
+			On = "/openmp",
+			Off = "/openmp-"
+		},
+		usestandardpreprocessor = {
+			On = "/Zc:preprocessor",
+			Off = "/Zc:preprocessor-"
 		}
 
 	}
 
+	function msc.getsharedflags(cfg)
+		local shared = config.mapFlags(cfg, msc.shared)
+
+		-- D9007: '/external:I' requires '/external:W'
+		if (#cfg.externalincludedirs > 0 or #cfg.includedirsafter > 0)
+			and cfg.externalwarnings == nil
+			and isVersionGreaterOrEqualTo(cfg.toolset, "msc-v142")
+		then
+			table.insert(shared, msc.shared.externalwarnings.Default)
+		end
+		return shared
+	end
+
 	msc.cflags = {
+		cdialect = {
+			["C11"] = "/std:c11",
+			["C17"] = "/std:c17",
+			["C23"] = "/std:clatest"
+		}
 	}
 
 	function msc.getcflags(cfg)
-		local shared = config.mapFlags(cfg, msc.shared)
+		local shared = msc.getsharedflags(cfg)
 		local cflags = config.mapFlags(cfg, msc.cflags)
 		local flags = table.join(shared, cflags, msc.getwarnings(cfg))
 		return flags
@@ -124,6 +204,13 @@
 --
 
 	msc.cxxflags = {
+		cppdialect = {
+			["C++14"] = "/std:c++14",
+			["C++17"] = "/std:c++17",
+			["C++20"] = "/std:c++20",
+			["C++23"] = "/std:c++latest",
+			["C++latest"] = "/std:c++latest"
+		},
 		exceptionhandling = {
 			Default = "/EHsc",
 			On = "/EHsc",
@@ -131,11 +218,15 @@
 		},
 		rtti = {
 			Off = "/GR-"
+		},
+		sanitize = {
+			Address = "/fsanitize=address",
+			Fuzzer = "/fsanitize=fuzzer",
 		}
 	}
 
 	function msc.getcxxflags(cfg)
-		local shared = config.mapFlags(cfg, msc.shared)
+		local shared = msc.getsharedflags(cfg)
 		local cxxflags = config.mapFlags(cfg, msc.cxxflags)
 		local flags = table.join(shared, cxxflags, msc.getwarnings(cfg))
 		return flags
@@ -148,9 +239,9 @@
 
 	msc.defines = {
 		characterset = {
-			Default = { '/D"_UNICODE"', '/D"UNICODE"' },
-			MBCS = '/D"_MBCS"',
-			Unicode = { '/D"_UNICODE"', '/D"UNICODE"' },
+			Default = { '/D_UNICODE', '/DUNICODE' },
+			MBCS = '/D_MBCS',
+			Unicode = { '/D_UNICODE', '/DUNICODE' },
 			ASCII = { },
 		}
 	}
@@ -169,7 +260,7 @@
 		end
 
 		for _, define in ipairs(defines) do
-			table.insert(result, '/D"' .. define .. '"')
+			table.insert(result, '/D' .. p.esc(define))
 		end
 
 		if cfg and cfg.exceptionhandling == p.OFF then
@@ -180,11 +271,7 @@
 	end
 
 	function msc.getundefines(undefines)
-		local result = {}
-		for _, undefine in ipairs(undefines) do
-			table.insert(result, '/U"' .. undefine .. '"')
-		end
-		return result
+		return table.translate(undefines, function (undefine) return '/U' .. p.esc(undefine) end)
 	end
 
 
@@ -202,7 +289,7 @@
 		local result = {}
 
 		table.foreachi(cfg.forceincludes, function(value)
-			local fn = project.getrelative(cfg.project, value)
+			local fn = p.tools.getrelative(cfg.project, value)
 			table.insert(result, "/FI" .. p.quoted(fn))
 		end)
 
@@ -217,13 +304,31 @@
 -- Decorate include file search paths for the MSVC command line.
 --
 
-	function msc.getincludedirs(cfg, dirs, sysdirs)
+	function msc.getincludedirs(cfg, dirs, extdirs, frameworkdirs, includedirsafter)
 		local result = {}
-		dirs = table.join(dirs, sysdirs)
 		for _, dir in ipairs(dirs) do
-			dir = project.getrelative(cfg.project, dir)
-			table.insert(result, '-I' ..  p.quoted(dir))
+			dir = p.tools.getrelative(cfg.project, dir)
+			table.insert(result, '/I' ..  p.quoted(dir))
 		end
+
+		for _, dir in ipairs(extdirs or {}) do
+			dir = p.tools.getrelative(cfg.project, dir)
+			if isVersionGreaterOrEqualTo(cfg.toolset, "msc-v142") then
+				table.insert(result, '/external:I' ..  p.quoted(dir))
+			else
+				table.insert(result, '/I' ..  p.quoted(dir))
+			end
+		end
+
+		for _, dir in ipairs(includedirsafter or {}) do
+			dir = p.tools.getrelative(cfg.project, dir)
+			if isVersionGreaterOrEqualTo(cfg.toolset, "msc-v142") then
+				table.insert(result, '/external:I' ..  p.quoted(dir))
+			else
+				table.insert(result, '/I' ..  p.quoted(dir))
+			end
+		end
+
 		return result
 	end
 
@@ -233,15 +338,20 @@
 --
 
 	msc.linkerFlags = {
+		linkerfatalwarnings = {
+			All = "/WX",
+		},
 		flags = {
-			FatalLinkWarnings = "/WX",
-			LinkTimeOptimization = "/GL",
 			NoIncrementalLink = "/INCREMENTAL:NO",
 			NoManifest = "/MANIFEST:NO",
 			OmitDefaultLibrary = "/NODEFAULTLIB",
 		},
 		kind = {
 			SharedLib = "/DLL",
+			WindowedApp = "/SUBSYSTEM:WINDOWS"
+		},
+		linktimeoptimization = {
+			On = "/LTCG"
 		},
 		symbols = {
 			On = "/DEBUG"
@@ -249,14 +359,25 @@
 	}
 
 	msc.librarianFlags = {
-		flags = {
-			FatalLinkWarnings = "/WX",
+		linkerfatalwarnings = {
+			All = "/WX",
 		}
 	}
 
 	function msc.getldflags(cfg)
 		local map = iif(cfg.kind ~= p.STATICLIB, msc.linkerFlags, msc.librarianFlags)
 		local flags = config.mapFlags(cfg, map)
+
+		if cfg.entrypoint then
+			-- /ENTRY requires that /SUBSYSTEM is set.
+			if cfg.kind == "ConsoleApp" then
+				table.insert(flags, "/SUBSYSTEM:CONSOLE")
+			elseif cfg.kind ~= "WindowedApp" then -- already set by above map
+				table.insert(flags, "/SUBSYSTEM:NATIVE") -- fallback
+			end
+			table.insert(flags, '/ENTRY:' .. cfg.entrypoint)
+		end
+
 		table.insert(flags, 1, "/NOLOGO")
 
 		-- Ignore default libraries
@@ -266,6 +387,12 @@
 				ignore = path.appendextension(ignore, ".lib")
 			end
 			table.insert(flags, '/NODEFAULTLIB:' .. ignore)
+		end
+
+		if cfg.kind == "ConsoleApp" or cfg.kind == "WindowedApp" or cfg.kind == "SharedLib" then
+			if cfg.profile then
+				table.insert(flags, "/PROFILE")
+			end
 		end
 
 		return flags
@@ -286,7 +413,7 @@
 		local flags = {}
 		local dirs = table.join(cfg.libdirs, cfg.syslibdirs)
 		for i, dir in ipairs(dirs) do
-			dir = project.getrelative(cfg.project, dir)
+			dir = p.tools.getrelative(cfg.project, dir)
 			table.insert(flags, '/LIBPATH:"' .. dir .. '"')
 		end
 		return flags
@@ -354,10 +481,22 @@
 --    default value should be used.
 --
 
+	msc.tools = {
+		cc = "cl",
+		cxx = "cl",
+		ar = "lib",
+		rc = "rc"
+	}
+
 	function msc.gettoolname(cfg, tool)
-		return nil
+		local toolset, version = p.tools.canonical(cfg.toolset or p.MSC)
+		-- TODO: Support versioning?
+		return msc.tools[tool]
 	end
 
+	function msc.gettooloutputext(tool)
+		return iif(tool == "rc", ".res", ".obj")
+	end
 
 
 	function msc.getwarnings(cfg)
@@ -371,7 +510,7 @@
 			table.insert(result, '/wd"' .. disable .. '"')
 		end
 
-		for _, fatal in ipairs(cfg.fatalwarnings) do
+		for _, fatal in ipairs(p.filterFatalWarnings(cfg.fatalwarnings)) do
 			table.insert(result, '/we"' .. fatal .. '"')
 		end
 

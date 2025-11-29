@@ -9,18 +9,26 @@
 
 
 #include "stdafx.h"
-#include "Mainfrm.h"
-#include "Mptrack.h"
-#include "AboutDialog.h"
-#include "../sounddev/SoundDevice.h"
-#include "Moddoc.h"
-#include <shlwapi.h>
 #include "ExceptionHandler.h"
-#include "../misc/WriteMemoryDump.h"
-#include "../common/version.h"
+#include "AboutDialog.h"
+#include "InputHandler.h"
+#include "Mainfrm.h"
+#include "Moddoc.h"
+#include "Reporting.h"
 #include "../common/mptFileIO.h"
+#include "../common/version.h"
+#include "../misc/mptFileCompression.h"
+#include "../misc/WriteMemoryDump.h"
 #include "../soundlib/mod_specifications.h"
 
+#include "mpt/fs/common_directories.hpp"
+#include "mpt/fs/fs.hpp"
+#include "mpt/io_file/outputfile.hpp"
+#include "mpt/string/utility.hpp"
+#include "Mptrack.h"
+#include "openmpt/sounddevice/SoundDevice.hpp"
+
+#include <shlwapi.h>
 #include <atomic>
 
 
@@ -124,8 +132,8 @@ struct CrashOutputDirectory
 	{
 		const mpt::PathString timestampDir = mpt::PathString::FromCString((CTime::GetCurrentTime()).Format(_T("%Y-%m-%d %H.%M.%S\\")));
 		// Create a crash directory
-		path = mpt::GetTempDirectory() + P_("OpenMPT Crash Files\\");
-		if(!path.IsDirectory())
+		path = mpt::common_directories::get_temp_directory() + P_("OpenMPT Crash Files\\");
+		if(!mpt::native_fs{}.is_directory(path))
 		{
 			CreateDirectory(path.AsNative().c_str(), nullptr);
 		}
@@ -136,7 +144,7 @@ struct CrashOutputDirectory
 		SetFilesystemCompression(path);
 		// Compression will be inherited by children directories and files automatically.
 		path += timestampDir;
-		if(!path.IsDirectory())
+		if(!mpt::native_fs{}.is_directory(path))
 		{
 			if(!CreateDirectory(path.AsNative().c_str(), nullptr))
 			{
@@ -248,9 +256,9 @@ int DebugReporter::RescueFiles()
 			filename += crashDirectory.path;
 			filename += mpt::PathString::FromUnicode(mpt::ufmt::val(++numFiles));
 			filename += P_("_");
-			filename += mpt::PathString::FromCString(modDoc->GetTitle()).SanitizeComponent();
+			filename += mpt::PathString::FromCString(modDoc->GetTitle()).AsSanitizedComponent();
 			filename += P_(".");
-			filename += mpt::PathString::FromUTF8(modDoc->GetSoundFile().GetModSpecifications().fileExtension);
+			filename += mpt::PathString::FromUnicode(modDoc->GetSoundFile().GetModSpecifications().GetFileExtension());
 
 			try
 			{
@@ -295,8 +303,9 @@ void DebugReporter::ReportError(mpt::ustring errorMessage)
 	}
 
 	errorMessage += UL_("\n\n");
-	errorMessage += MPT_UFORMAT("OpenMPT {} ({} ({}))")
+	errorMessage += MPT_UFORMAT("OpenMPT {} {} ({} ({}))")
 		( Build::GetVersionStringExtended()
+		, mpt::OS::Windows::Name(mpt::OS::Windows::GetProcessArchitecture())
 		, SourceInfo::Current().GetUrlWithRevision()
 		, SourceInfo::Current().GetStateString()
 		);
@@ -313,21 +322,41 @@ void DebugReporter::ReportError(mpt::ustring errorMessage)
 	errorMessage += UL_("\n");
 
 	{
-		mpt::SafeOutputFile sf(crashDirectory.path + P_("error.txt"), std::ios::binary, mpt::FlushMode::Full);
-		mpt::ofstream& f = sf;
+		mpt::IO::SafeOutputFile sf(crashDirectory.path + P_("error.txt"), std::ios::binary, mpt::IO::FlushMode::Full);
+		mpt::IO::ofstream& f = sf;
 		f.imbue(std::locale::classic());
-		f << mpt::String::Replace(mpt::ToCharset(mpt::Charset::UTF8, errorMessage), "\n", "\r\n");
+		f << mpt::replace(mpt::ToCharset(mpt::Charset::UTF8, errorMessage), std::string("\n"), std::string("\r\n"));
+	}
+
+	if(auto ih = CMainFrame::GetInputHandler(); ih != nullptr)
+	{
+		mpt::IO::SafeOutputFile sf(crashDirectory.path + P_("last-commands.txt"), std::ios::binary, mpt::IO::FlushMode::Full);
+		mpt::IO::ofstream& f = sf;
+		f.imbue(std::locale::classic());
+
+		const auto commandSet = ih->m_activeCommandSet.get();
+		f << "Last commands:\n";
+		for(size_t i = 0; i < ih->m_lastCommands.size(); i++)
+		{
+			CommandID id = ih->m_lastCommands[(ih->m_lastCommandPos + i) % ih->m_lastCommands.size()];
+			if(id == kcNull)
+				continue;
+			f << mpt::afmt::val(id);
+			if(commandSet)
+				f << " (" << mpt::ToCharset(mpt::Charset::UTF8, commandSet->GetCommandText(id)) << ")";
+			f << "\n";
+		}
 	}
 
 	{
-		mpt::SafeOutputFile sf(crashDirectory.path + P_("threads.txt"), std::ios::binary, mpt::FlushMode::Full);
-		mpt::ofstream& f = sf;
+		mpt::IO::SafeOutputFile sf(crashDirectory.path + P_("threads.txt"), std::ios::binary, mpt::IO::FlushMode::Full);
+		mpt::IO::ofstream& f = sf;
 		f.imbue(std::locale::classic());
-		f << MPT_FORMAT("current : {}")(mpt::fmt::hex0<8>(GetCurrentThreadId())) << "\r\n";
-		f << MPT_FORMAT("GUI     : {}")(mpt::fmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindGUI))) << "\r\n";
-		f << MPT_FORMAT("Audio   : {}")(mpt::fmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindAudio))) << "\r\n";
-		f << MPT_FORMAT("Notify  : {}")(mpt::fmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindNotify))) << "\r\n";
-		f << MPT_FORMAT("WatchDir: {}")(mpt::fmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindWatchdir))) << "\r\n";
+		f << MPT_AFORMAT("current : {}")(mpt::afmt::hex0<8>(GetCurrentThreadId())) << "\r\n";
+		f << MPT_AFORMAT("GUI     : {}")(mpt::afmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindGUI))) << "\r\n";
+		f << MPT_AFORMAT("Audio   : {}")(mpt::afmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindAudio))) << "\r\n";
+		f << MPT_AFORMAT("Notify  : {}")(mpt::afmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindNotify))) << "\r\n";
+		f << MPT_AFORMAT("WatchDir: {}")(mpt::afmt::hex0<8>(mpt::log::Trace::GetThreadId(mpt::log::Trace::ThreadKindWatchdir))) << "\r\n";
 	}
 
 	static constexpr struct { const mpt::uchar * section; const mpt::uchar * key; } configAnonymize[] =
@@ -337,8 +366,8 @@ void DebugReporter::ReportError(mpt::ustring errorMessage)
 	};
 
 	{
-		mpt::SafeOutputFile sf(crashDirectory.path + P_("active-settings.txt"), std::ios::binary, mpt::FlushMode::Full);
-		mpt::ofstream& f = sf;
+		mpt::IO::SafeOutputFile sf(crashDirectory.path + P_("active-settings.txt"), std::ios::binary, mpt::IO::FlushMode::Full);
+		mpt::IO::ofstream& f = sf;
 		f.imbue(std::locale::classic());
 		if(theApp.GetpSettings())
 		{
@@ -402,15 +431,15 @@ void DebugReporter::ReportError(mpt::ustring errorMessage)
 	*/
 
 	{
-		mpt::SafeOutputFile sf(crashDirectory.path + P_("about-openmpt.txt"), std::ios::binary, mpt::FlushMode::Full);
-		mpt::ofstream& f = sf;
+		mpt::IO::SafeOutputFile sf(crashDirectory.path + P_("about-openmpt.txt"), std::ios::binary, mpt::IO::FlushMode::Full);
+		mpt::IO::ofstream& f = sf;
 		f.imbue(std::locale::classic());
 		f << mpt::ToCharset(mpt::Charset::UTF8, CAboutDlg::GetTabText(0));
 	}
 
 	{
-		mpt::SafeOutputFile sf(crashDirectory.path + P_("about-components.txt"), std::ios::binary, mpt::FlushMode::Full);
-		mpt::ofstream& f = sf;
+		mpt::IO::SafeOutputFile sf(crashDirectory.path + P_("about-components.txt"), std::ios::binary, mpt::IO::FlushMode::Full);
+		mpt::IO::ofstream& f = sf;
 		f.imbue(std::locale::classic());
 		f << mpt::ToCharset(mpt::Charset::UTF8, CAboutDlg::GetTabText(1));
 	}
@@ -516,6 +545,7 @@ bool DebugReporter::Cleanup(DumpMode mode)
 // Different entry points for different situations in which we want to dump some information
 
 
+#if 0
 static bool IsCxxException(_EXCEPTION_POINTERS *pExceptionInfo)
 {
 	if (!pExceptionInfo)
@@ -526,6 +556,7 @@ static bool IsCxxException(_EXCEPTION_POINTERS *pExceptionInfo)
 		return false;
 	return true;
 }
+#endif
 
 
 template <typename E>
@@ -555,21 +586,21 @@ static const E * GetCxxException(_EXCEPTION_POINTERS *pExceptionInfo)
 		return nullptr;
 	if(pExceptionInfo->ExceptionRecord->ExceptionCode != 0xE06D7363u)
 		return nullptr;
-	#ifdef _WIN64
-		if(pExceptionInfo->ExceptionRecord->NumberParameters != 4)
-			return nullptr;
-	#else
-		if(pExceptionInfo->ExceptionRecord->NumberParameters != 3)
-			return nullptr;
-	#endif
+#ifdef _WIN64
+	if(pExceptionInfo->ExceptionRecord->NumberParameters != 4)
+		return nullptr;
+#else
+	if(pExceptionInfo->ExceptionRecord->NumberParameters != 3)
+		return nullptr;
+#endif
 	if(pExceptionInfo->ExceptionRecord->ExceptionInformation[0] != 0x19930520u)
 		return nullptr;
 	std::uintptr_t base_address = 0;
-	#ifdef _WIN64
-		base_address = pExceptionInfo->ExceptionRecord->ExceptionInformation[3];
-	#else
-		base_address = 0;
-	#endif
+#ifdef _WIN64
+	base_address = pExceptionInfo->ExceptionRecord->ExceptionInformation[3];
+#else
+	base_address = 0;
+#endif
 	std::uintptr_t obj_address = pExceptionInfo->ExceptionRecord->ExceptionInformation[1];
 	if(!obj_address)
 		return nullptr;
@@ -699,7 +730,6 @@ LONG ExceptionHandler::ExceptionFilter(_EXCEPTION_POINTERS *pExceptionInfo)
 }
 
 
-static void mpt_unexpected_handler();
 static void mpt_terminate_handler();
 
 
@@ -718,6 +748,7 @@ void ExceptionHandler::Register()
 
 void ExceptionHandler::ConfigureSystemHandler()
 {
+#if MPT_WINNT_AT_LEAST(MPT_WIN_VISTA)
 	if(delegateToWindowsHandler)
 	{
 		//SetErrorMode(0);
@@ -726,6 +757,15 @@ void ExceptionHandler::ConfigureSystemHandler()
 	{
 		g_OriginalErrorMode = ::SetErrorMode(::GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 	}
+#else // < MPT_WIN_VISTA
+	if(delegateToWindowsHandler)
+	{
+		g_OriginalErrorMode = ::SetErrorMode(0);
+	} else
+	{
+		g_OriginalErrorMode = ::SetErrorMode(::SetErrorMode(0) | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+	}
+#endif // MPT_WIN_VISTA
 }
 
 
@@ -770,7 +810,7 @@ static void mpt_terminate_handler()
 
 #if defined(MPT_ASSERT_HANDLER_NEEDED)
 
-MPT_NOINLINE void AssertHandler(const mpt::source_location &loc, const char *expr, const char *msg)
+MPT_ATTR_NOINLINE MPT_DECL_NOINLINE void AssertHandler(const mpt::source_location &loc, const char *expr, const char *msg)
 {
 	DebugReporter report(msg ? DumpModeWarning : DumpModeCrash, nullptr);
 	if(IsDebuggerPresent())

@@ -27,6 +27,19 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		577A322250E03394447B9062 /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXGroup section */
 		495A6F97B36CF1894C97DDD7 /* luashim-lib */ = {
 			isa = PBXGroup;
@@ -57,6 +70,7 @@
 				75E67CD6769979C8EA7B4B16 /* Resources */,
 				DF93962DE046931F5428646D /* Sources */,
 				05FEFC3606B1F9287A93CA76 /* Frameworks */,
+				577A322250E03394447B9062 /* Embed Libraries */,
 			);
 			buildRules = (
 			);
@@ -120,17 +134,18 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					PREMAKE_COMPRESSION,
-					CURL_STATICLIB,
 					PREMAKE_CURL,
+					CURL_STATICLIB,
+					LUA_STATICLIB,
 					_DEBUG,
-					LUA_USE_MACOSX,
+					LUA_USE_POSIX,
+					LUA_USE_DLOPEN,
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				OBJROOT = "obj/Debug/luashim-lib";
 				ONLY_ACTIVE_ARCH = YES;
-				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
 				SYMROOT = bin/Debug;
 				USER_HEADER_SEARCH_PATHS = (
 					../../contrib/lua/src,
@@ -160,17 +175,18 @@
 				GCC_OPTIMIZATION_LEVEL = fast;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					PREMAKE_COMPRESSION,
-					CURL_STATICLIB,
 					PREMAKE_CURL,
+					CURL_STATICLIB,
+					LUA_STATICLIB,
 					NDEBUG,
-					LUA_USE_MACOSX,
+					LUA_USE_POSIX,
+					LUA_USE_DLOPEN,
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				OBJROOT = "obj/Release/luashim-lib";
 				ONLY_ACTIVE_ARCH = NO;
-				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
 				SYMROOT = bin/Release;
 				USER_HEADER_SEARCH_PATHS = (
 					../../contrib/lua/src,

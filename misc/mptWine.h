@@ -10,12 +10,14 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
-#include "../common/mptOS.h"
-#include "../common/FlagSet.h"
+#include "mptOS.h"
+#include "mpt/library/library.hpp"
+#include "openmpt/base/FlagSet.hpp"
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,7 +25,7 @@
 OPENMPT_NAMESPACE_BEGIN
 
 
-#if defined(MODPLUG_TRACKER) && MPT_OS_WINDOWS
+#if MPT_OS_WINDOWS
 
 
 namespace mpt
@@ -45,7 +47,7 @@ public:
 };
 
 
-typedef void (*ExecutePosixCommandProgress)(void *userdata);
+using ExecutePosixCommandProgress = void (*)(void *userdata);
 
 enum ExecuteProgressResult
 {
@@ -53,7 +55,7 @@ enum ExecuteProgressResult
 	ExecuteProgressAsyncCancel = -1,
 };
 
-typedef ExecuteProgressResult (*ExecutePosixShellScriptProgress)(void *userdata);
+using ExecutePosixShellScriptProgress = ExecuteProgressResult (*)(void *userdata);
 
 
 enum ExecFlags
@@ -86,11 +88,11 @@ struct ExecResult
 class Context
 {
 protected:
-	mpt::Wine::VersionContext m_VersionContext;
-	mpt::Library m_Kernel32;
+	mpt::OS::Wine::VersionContext m_VersionContext;
+	std::shared_ptr<std::optional<mpt::library>> m_Kernel32;
 private:
-	LPWSTR (*CDECL wine_get_dos_file_name)(LPCSTR str);
-	LPSTR (*CDECL wine_get_unix_file_name)(LPCWSTR str);
+	LPWSTR (CDECL * wine_get_dos_file_name)(LPCSTR str);
+	LPSTR (CDECL * wine_get_unix_file_name)(LPCWSTR str);
 protected:
 	std::string m_Uname_m;
 	std::string m_HOME;
@@ -98,7 +100,7 @@ protected:
 	std::string m_XDG_CACHE_HOME;
 	std::string m_XDG_CONFIG_HOME;
 public:
-	Context(mpt::Wine::VersionContext versionContext);
+	Context(mpt::OS::Wine::VersionContext versionContext);
 public:
 	std::string EscapePosixShell(std::string line);
 	std::string PathToPosix(mpt::PathString windowsPath);
@@ -108,8 +110,8 @@ public:
 	std::string PathToPosixCanonical(mpt::PathString windowsPath);
 	std::string GetPosixEnvVar(std::string var, std::string def = std::string());
 public:
-	mpt::Wine::VersionContext VersionContext() const { return m_VersionContext; }
-	mpt::Library Kernel32() const { return m_Kernel32; }
+	mpt::OS::Wine::VersionContext VersionContext() const { return m_VersionContext; }
+	std::shared_ptr<std::optional<mpt::library>> Kernel32() const { return m_Kernel32; }
 	std::string Uname_m() const { return m_Uname_m; }
 	std::string HOME() const { return m_HOME; }
 	std::string XDG_DATA_HOME() const { return m_XDG_DATA_HOME; }
@@ -123,7 +125,7 @@ public:
 } // namespace mpt
 
 
-#endif // MODPLUG_TRACKER && MPT_OS_WINDOWS
+#endif // MPT_OS_WINDOWS
 
 
 OPENMPT_NAMESPACE_END
