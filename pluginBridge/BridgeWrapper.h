@@ -10,12 +10,14 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
-#ifndef NO_VST
+#ifdef MPT_WITH_VST
 
 #include "BridgeCommon.h"
 #include "../common/ComponentManager.h"
+#include "mpt/exception/exception.hpp"
+#include "mpt/exception/runtime_error.hpp"
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -32,6 +34,12 @@ enum PluginArch : int
 
 std::size_t GetPluginArchPointerSize(PluginArch arch);
 
+enum class Generation
+{
+	Legacy,
+	Modern,
+};
+
 class ComponentPluginBridge
 	: public ComponentBase
 {
@@ -45,10 +53,11 @@ public:
 	};
 private:
 	const PluginArch arch;
+	const Generation generation;
 	mpt::PathString exeName;
 	Availability availability = AvailabilityUnknown;
 protected:
-	ComponentPluginBridge(PluginArch arch);
+	ComponentPluginBridge(PluginArch arch, Generation generation);
 protected:
 	bool DoInitialize() override;
 public:
@@ -59,17 +68,33 @@ public:
 class ComponentPluginBridge_x86
 	: public ComponentPluginBridge
 {
-	MPT_DECLARE_COMPONENT_MEMBERS
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridge_x86, "PluginBridge-x86")
 public:
-	ComponentPluginBridge_x86() : ComponentPluginBridge(PluginArch_x86) { }
+	ComponentPluginBridge_x86() : ComponentPluginBridge(PluginArch_x86, Generation::Modern) { }
+};
+
+class ComponentPluginBridgeLegacy_x86
+	: public ComponentPluginBridge
+{
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridgeLegacy_x86, "PluginBridgeLegacy-x86")
+public:
+	ComponentPluginBridgeLegacy_x86() : ComponentPluginBridge(PluginArch_x86, Generation::Legacy) { }
 };
 
 class ComponentPluginBridge_amd64
 	: public ComponentPluginBridge
 {
-	MPT_DECLARE_COMPONENT_MEMBERS
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridge_amd64, "PluginBridge-amd64")
 public:
-	ComponentPluginBridge_amd64() : ComponentPluginBridge(PluginArch_amd64) { }
+	ComponentPluginBridge_amd64() : ComponentPluginBridge(PluginArch_amd64, Generation::Modern) { }
+};
+
+class ComponentPluginBridgeLegacy_amd64
+	: public ComponentPluginBridge
+{
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridgeLegacy_amd64, "PluginBridgeLegacy-amd64")
+public:
+	ComponentPluginBridgeLegacy_amd64() : ComponentPluginBridge(PluginArch_amd64, Generation::Legacy) { }
 };
 
 #if defined(MPT_WITH_WINDOWS10)
@@ -77,18 +102,36 @@ public:
 class ComponentPluginBridge_arm
 	: public ComponentPluginBridge
 {
-	MPT_DECLARE_COMPONENT_MEMBERS
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridge_arm, "PluginBridge-arm")
 public:
-	ComponentPluginBridge_arm() : ComponentPluginBridge(PluginArch_arm) { }
+	ComponentPluginBridge_arm() : ComponentPluginBridge(PluginArch_arm, Generation::Modern) { }
+};
+
+class ComponentPluginBridgeLegacy_arm
+	: public ComponentPluginBridge
+{
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridgeLegacy_arm, "PluginBridgeLegacy-arm")
+public:
+	ComponentPluginBridgeLegacy_arm() : ComponentPluginBridge(PluginArch_arm, Generation::Legacy) { }
 };
 
 class ComponentPluginBridge_arm64
 	: public ComponentPluginBridge
 {
-	MPT_DECLARE_COMPONENT_MEMBERS
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridge_arm64, "PluginBridge-arm64")
 public:
-	ComponentPluginBridge_arm64() : ComponentPluginBridge(PluginArch_arm64) { }
+	ComponentPluginBridge_arm64() : ComponentPluginBridge(PluginArch_arm64, Generation::Modern) { }
 };
+
+class ComponentPluginBridgeLegacy_arm64
+	: public ComponentPluginBridge
+{
+	MPT_DECLARE_COMPONENT_MEMBERS(ComponentPluginBridgeLegacy_arm64, "PluginBridgeLegacy-arm64")
+public:
+	ComponentPluginBridgeLegacy_arm64() : ComponentPluginBridge(PluginArch_arm64, Generation::Legacy) { }
+};
+
+
 
 #endif // MPT_WITH_WINDOWS10
 
@@ -119,20 +162,26 @@ protected:
 	Vst::VstSpeakerArrangement m_speakers[2];
 
 	ComponentHandle<ComponentPluginBridge_x86> pluginBridge_x86;
+	ComponentHandle<ComponentPluginBridgeLegacy_x86> pluginBridgeLegacy_x86;
 	ComponentHandle<ComponentPluginBridge_amd64> pluginBridge_amd64;
+	ComponentHandle<ComponentPluginBridgeLegacy_amd64> pluginBridgeLegacy_amd64;
 #if defined(MPT_WITH_WINDOWS10)
 	ComponentHandle<ComponentPluginBridge_arm> pluginBridge_arm;
+	ComponentHandle<ComponentPluginBridgeLegacy_arm> pluginBridgeLegacy_arm;
 	ComponentHandle<ComponentPluginBridge_arm64> pluginBridge_arm64;
+	ComponentHandle<ComponentPluginBridgeLegacy_arm64> pluginBridgeLegacy_arm64;
 #endif // MPT_WITH_WINDOWS10
+
+	Generation m_Generation = Generation::Modern;
 
 public:
 
 	// Generic bridge exception
-	class BridgeException : public std::exception
+	class BridgeException : public mpt::runtime_error
 	{
 	public:
-		BridgeException(const char *str) : std::exception(str) { }
-		BridgeException() { }
+		BridgeException(mpt::ustring &&str) : mpt::runtime_error(std::move(str)) { }
+		BridgeException() : mpt::runtime_error(U_("unknown BridgeException")) { }
 	};
 	class BridgeNotFoundException : public BridgeException { };
 
@@ -155,13 +204,13 @@ public:
 	static bool IsPluginNative(const mpt::PathString &pluginPath) { return GetPluginBinaryType(pluginPath) == GetNativePluginBinaryType(); }
 	static uint64 GetFileVersion(const WCHAR *exePath);
 
-	static Vst::AEffect *Create(const VSTPluginLib &plugin);
+	static Vst::AEffect *Create(const VSTPluginLib &plugin, bool forceLegacy);
 
 protected:
 	BridgeWrapper();
 	~BridgeWrapper();
 
-	bool Init(const mpt::PathString &pluginPath, BridgeWrapper *sharedInstace);
+	bool Init(const mpt::PathString &pluginPath, Generation bridgeGeneration, BridgeWrapper *sharedInstace);
 
 	void ParseNextMessage(int msgID);
 	void DispatchToHost(DispatchMsg &msg);
@@ -187,4 +236,4 @@ protected:
 
 OPENMPT_NAMESPACE_END
 
-#endif // NO_VST
+#endif // MPT_WITH_VST

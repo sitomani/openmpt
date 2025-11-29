@@ -1,18 +1,19 @@
 /*
-* LFOPluginEditor.h
-* -----------------
-* Purpose: Editor interface for the LFO plugin.
-* Notes  : (currently none)
-* Authors: Johannes Schultz (OpenMPT Devs)
-* The OpenMPT source code is released under the BSD license. Read LICENSE for more details.
-*/
+ * LFOPluginEditor.h
+ * -----------------
+ * Purpose: Editor interface for the LFO plugin.
+ * Notes  : (currently none)
+ * Authors: Johannes Schultz (OpenMPT Devs)
+ * The OpenMPT source code is released under the BSD license. Read LICENSE for more details.
+ */
 
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
 #include "../AbstractVstEditor.h"
+#include "../PluginComboBox.h"
 #include "../../soundlib/plugins/LFOPlugin.h"
 
 OPENMPT_NAMESPACE_BEGIN
@@ -22,7 +23,8 @@ struct UpdateHint;
 class LFOPluginEditor : public CAbstractVstEditor
 {
 protected:
-	CComboBox m_plugParam, m_outPlug, m_midiCC;
+	CComboBox m_plugParam, m_midiCC;
+	PluginComboBox m_outPlug;
 	CSliderCtrl m_amplitudeSlider, m_offsetSlider, m_frequencySlider;
 	CEdit m_midiChnEdit;
 	CSpinButtonCtrl m_midiChnSpin;
@@ -40,7 +42,7 @@ public:
 
 	void UpdateParamDisplays() override;
 	void UpdateParam(int32 param) override;
-	void UpdateView(UpdateHint &hint) override;
+	void UpdateView(UpdateHint hint) override;
 
 protected:
 	void DoDataExchange(CDataExchange* pDX) override;

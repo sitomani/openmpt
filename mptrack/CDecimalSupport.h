@@ -11,7 +11,9 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
+#include "AccessibleControls.h"
+#include "../soundlib/Snd_defs.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -54,7 +56,7 @@ protected:
 	/// the locale dependant negative sign
 	TCHAR m_NegativeSign[6];
 
-	bool m_allowNegative, m_allowFractions;
+	bool m_allowNegative = true, m_allowFractions = true;
 
 public:
 
@@ -70,8 +72,6 @@ public:
 	/// \brief Initialize m_DecimalSeparator and m_NegativeSign
 	/// \remarks calls InitDecimalSeparator and InitNegativeSign
 	CDecimalSupport()
-		: m_allowNegative(true)
-		, m_allowFractions(true)
 	{
 		InitDecimalSeparator();
 		InitNegativeSign();
@@ -119,8 +119,8 @@ public:
 		for (TCHAR* x = buffer; *x; ++x)
 		{
 			if (x - buffer == nStartChar) x += nEndChar - nStartChar;
-			if (*x == m_DecimalSeparator[0] ||*x == _T('.')) ++dec_point;
-			if (*x == m_NegativeSign[0]) ++neg_sign;
+			if (*x == m_DecimalSeparator[0] || *x == _T('.')) ++dec_point;
+			if (*x == m_NegativeSign[0] || *x == _T('-')) ++neg_sign;
 		}
 
 #ifdef _UNICODE
@@ -144,7 +144,7 @@ public:
 				bHandled = true;
 				for (TCHAR* s = lptstr; *s; ++s)
 				{
-					if (*s == m_NegativeSign[0] && m_allowNegative)
+					if ((*s == m_NegativeSign[0] ||*s == _T('-')) && m_allowNegative)
 					{
 
 						for (TCHAR* t = m_NegativeSign + 1; *t; ++t, ++s)
@@ -208,9 +208,9 @@ public:
 	/// \param lParam
 	/// \param[out] bHandled true, if the key press was handled in this function
 	/// \return 0
-	LRESULT OnChar(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled)
+	LRESULT OnChar(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, bool &handled)
 	{
-		bHandled = false;
+		handled = false;
 		if ((static_cast<TCHAR>(wParam) == m_DecimalSeparator[0] || wParam == _T('.')) && m_allowFractions)
 		{
 			T* pT = static_cast<T*>(this);
@@ -227,10 +227,10 @@ public:
 			}
 
 			pT->ReplaceSel(m_DecimalSeparator, true);
-			bHandled = true;
+			handled = true;
 		}
 
-		if (static_cast<TCHAR>(wParam) == m_NegativeSign[0] && m_allowNegative)
+		if ((static_cast<TCHAR>(wParam) == m_NegativeSign[0] || wParam == _T('-')) && m_allowNegative)
 		{
 			T* pT = static_cast<T*>(this);
 			int nStartChar;
@@ -243,7 +243,7 @@ public:
 			//Verify that the control doesn't already contain a negative sign
 			if (nEndChar == 0 && buffer[0] == m_NegativeSign[0]) return 0;
 			pT->ReplaceSel(m_NegativeSign, true);
-			bHandled = true;
+			handled = true;
 		}
 		return 0;
 	}
@@ -376,7 +376,7 @@ public:
 };
 
 
-class CNumberEdit : public CEdit, public CDecimalSupport<CNumberEdit>
+class CNumberEdit : public AccessibleEdit, public CDecimalSupport<CNumberEdit>
 {
 public:
 	void SetTempoValue(const TEMPO &t);

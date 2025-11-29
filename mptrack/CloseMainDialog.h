@@ -10,11 +10,13 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 #include "InputHandler.h"
 #include "ResizableDialog.h"
 
 OPENMPT_NAMESPACE_BEGIN
+
+class CModDoc;
 
 class CloseMainDialog: public ResizableDialog
 {
@@ -23,7 +25,7 @@ protected:
 	CPoint m_minSize;
 	BypassInputHandler m_bih;
 
-	static CString FormatTitle(const CModDoc *modDoc, bool fullPath);
+	static CString FormatTitle(const CModDoc &modDoc, bool fullPath);
 
 public:
 	CloseMainDialog();

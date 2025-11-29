@@ -10,14 +10,20 @@
 #include "stdafx.h"
 #include "version.h"
 
+#include "mpt/format/join.hpp"
+#include "mpt/parse/parse.hpp"
+#include "mpt/string/utility.hpp"
+
 #include "mptString.h"
 #include "mptStringFormat.h"
-#include "mptStringParse.h" 
-
-#include "mptOS.h"
 
 #include "versionNumber.h"
+
+#if __has_include("svn_version.h")
 #include "svn_version.h"
+#else
+#include "../build/svn_version/svn_version.h"
+#endif
 
 
 
@@ -49,10 +55,10 @@ mpt::ustring Version::GetOpenMPTVersionString() const
 Version Version::Parse(const mpt::ustring &s)
 {
 	uint32 result = 0;
-	std::vector<mpt::ustring> numbers = mpt::String::Split<mpt::ustring>(s, U_("."));
+	std::vector<mpt::ustring> numbers = mpt::split(s, U_("."));
 	for (std::size_t i = 0; i < numbers.size() && i < 4; ++i)
 	{
-		result |= (mpt::String::Parse::Hex<unsigned int>(numbers[i]) & 0xff) << ((3 - i) * 8);
+		result |= (mpt::parse_hex<unsigned int>(numbers[i]) & 0xff) << ((3 - i) * 8);
 	}
 	return Version(result);
 }
@@ -139,7 +145,7 @@ static int GetRevision()
 		{
 			svnversion = svnversion.substr(0, svnversion.find("P"));
 		}
-		return ConvertStrTo<int>(svnversion);
+		return mpt::parse<int>(svnversion);
 	#else
 		MPT_WARNING_STATEMENT("SVN revision unknown. Please check your build system.");
 		return 0;
@@ -275,14 +281,14 @@ VersionWithRevision VersionWithRevision::Parse(const mpt::ustring &s)
 {
 	Version version = Version::Parse(mpt::ustring());
 	uint64 revision = 0;
-	const auto tokens = mpt::String::Split<mpt::ustring>(s, U_("-"));
+	const auto tokens = mpt::split(s, U_("-"));
 	if(tokens.size() >= 1)
 	{
 		version = Version::Parse(tokens[0]);
 	}
 	if(tokens.size() >= 2)
 	{
-		revision = ConvertStrTo<uint64>(tokens[1].substr(1));
+		revision = mpt::parse<uint64>(tokens[1].substr(1));
 	}
 	return {version, revision};
 }
@@ -338,6 +344,7 @@ static mpt::ustring GetBuildFlagsString()
 {
 	mpt::ustring retval;
 	#ifdef MODPLUG_TRACKER
+		retval += mpt::ToUnicode(mpt::Charset::ASCII, OPENMPT_BUILD_VARIANT_MONIKER);
 		if(Version::Current().IsTestVersion())
 		{
 			retval += UL_(" TEST");
@@ -385,51 +392,23 @@ mpt::ustring GetBuildFeaturesString()
 		#if !(defined(MPT_WITH_OGG) && defined(MPT_WITH_VORBIS) && defined(MPT_WITH_VORBISFILE)) && !defined(MPT_WITH_STBVORBIS)
 			UL_(" -VORBIS")
 		#endif
-		#if !defined(NO_PLUGINS)
-			UL_(" +PLUGINS")
-		#else
-			UL_(" -PLUGINS")
-		#endif
 		#if defined(MPT_WITH_DMO)
 			UL_(" +DMO")
 		#endif
 		;
 	#endif
 	#ifdef MODPLUG_TRACKER
-		if constexpr(mpt::arch_bits == 64)
-		{
-			if (true
-				&& (mpt::Windows::Version::GetMinimumKernelLevel() <= mpt::Windows::Version::WinXP64)
-				&& (mpt::Windows::Version::GetMinimumAPILevel() <= mpt::Windows::Version::WinXP64)
-			) {
-				retval += UL_(" WIN64OLD");
-			}
-		} else if constexpr(mpt::arch_bits == 32)
-		{
-			if (true
-				&& (mpt::Windows::Version::GetMinimumKernelLevel() <= mpt::Windows::Version::WinXP)
-				&& (mpt::Windows::Version::GetMinimumAPILevel() <= mpt::Windows::Version::WinXP)
-			) {
-				retval += UL_(" WIN32OLD");
-			}
-		}
 		retval += UL_("")
 		#if defined(UNICODE)
 			UL_(" UNICODE")
 		#else
 			UL_(" ANSI")
 		#endif
-		#ifdef NO_VST
+		#ifndef MPT_WITH_VST
 			UL_(" NO_VST")
 		#endif
 		#ifndef MPT_WITH_DMO
 			UL_(" NO_DMO")
-		#endif
-		#ifdef NO_PLUGINS
-			UL_(" NO_PLUGINS")
-		#endif
-		#ifndef MPT_WITH_ASIO
-			UL_(" NO_ASIO")
 		#endif
 			;
 	#endif
@@ -505,16 +484,6 @@ mpt::ustring GetVersionString(FlagSet<Build::Strings> strings)
 			result.push_back(GetRevisionString());
 		}
 	}
-	#if defined(MODPLUG_TRACKER) && MPT_OS_WINDOWS
-		if(strings[StringArchitecture])
-		{
-			result.push_back(mpt::Windows::Name(mpt::Windows::GetProcessArchitecture()));
-		}
-	#endif // MODPLUG_TRACKER && MPT_OS_WINDOWS
-	if(strings[StringBitness])
-	{
-		result.push_back(MPT_UFORMAT(" {} bit")(mpt::arch_bits));
-	}
 	if(strings[StringSourceInfo])
 	{
 		const SourceInfo sourceInfo = SourceInfo::Current();
@@ -542,7 +511,7 @@ mpt::ustring GetVersionString(FlagSet<Build::Strings> strings)
 	{
 		result.push_back(GetBuildFeaturesString());
 	}
-	return mpt::String::Trim(mpt::String::Combine<mpt::ustring>(result, U_("")));
+	return mpt::trim(mpt::join_format<mpt::ustring>(result, U_("")));
 }
 
 mpt::ustring GetVersionStringPure()
@@ -550,9 +519,6 @@ mpt::ustring GetVersionStringPure()
 	FlagSet<Build::Strings> strings;
 	strings |= Build::StringVersion;
 	strings |= Build::StringRevision;
-	#ifdef MODPLUG_TRACKER
-		strings |= Build::StringArchitecture;
-	#endif
 	return GetVersionString(strings);
 }
 
@@ -570,9 +536,6 @@ mpt::ustring GetVersionStringExtended()
 	FlagSet<Build::Strings> strings;
 	strings |= Build::StringVersion;
 	strings |= Build::StringRevision;
-	#ifdef MODPLUG_TRACKER
-		strings |= Build::StringArchitecture;
-	#endif
 	#ifndef MODPLUG_TRACKER
 		strings |= Build::StringSourceInfo;
 	#endif
@@ -627,12 +590,12 @@ mpt::ustring GetFullCreditsString()
 		"libopenmpt (based on OpenMPT / Open ModPlug Tracker)\n"
 #endif
 		"\n"
-		"Copyright \xC2\xA9 2004-2020 OpenMPT Project Developers and Contributors\n"
+		"Copyright \xC2\xA9 2004-2025 OpenMPT Project Developers and Contributors\n"
 		"Copyright \xC2\xA9 1997-2003 Olivier Lapicque\n"
 		"\n"
 		"Developers:\n"
-		"Johannes Schultz (2008-2020)\n"
-		"J\xC3\xB6rn Heusipp (2012-2020)\n"
+		"Johannes Schultz (2008-2025)\n"
+		"J\xC3\xB6rn Heusipp (2012-2025)\n"
 		"Ahti Lepp\xC3\xA4nen (2005-2011)\n"
 		"Robin Fernandes (2004-2007)\n"
 		"Sergiy Pylypenko (2007)\n"
@@ -642,30 +605,30 @@ mpt::ustring GetFullCreditsString()
 		"\n"
 		"Additional contributors:\n"
 		"coda (https://coda.s3m.us/)\n"
+		"cs127 (https://cs127.github.io/)\n"
 		"Jo\xC3\xA3o Baptista de Paula e Silva (https://joaobapt.com/)\n"
 		"kode54 (https://kode54.net/)\n"
 		"Revenant (https://revenant1.net/)\n"
+		"SYRiNX\n"
 		"xaimus (http://xaimus.com/)\n"
+		"zersal\n"
 		"\n"
 		"Thanks to:\n"
 		"\n"
 		"Konstanty for the XMMS-ModPlug resampling implementation\n"
-		"http://modplug-xmms.sourceforge.net/\n"
+		"https://modplug-xmms.sourceforge.net/\n"
 		"\n"
 #ifdef MODPLUG_TRACKER
-		"Stephan M. Bernsee for pitch shifting source code\n"
-		"http://www.dspdimension.com/\n"
+		"Geraint Luff for Signalsmith Stretch\n"
+		"https://signalsmith-audio.co.uk/code/stretch/\n"
 		"\n"
 		"Aleksey Vaneev of Voxengo for r8brain sample rate converter\n"
 		"https://github.com/avaneev/r8brain-free-src\n"
 		"\n"
-		"Olli Parviainen for SoundTouch Library (time stretching)\n"
-		"https://www.surina.net/soundtouch/\n"
-		"\n"
 #endif
-#ifndef NO_VST
+#ifdef MPT_WITH_VST
 		"Hermann Seib for his example VST Host implementation\n"
-		"http://www.hermannseib.com/english/vsthost.htm\n"
+		"https://www.hermannseib.com/english/vsthost.htm\n"
 		"\n"
 		"Benjamin \"BeRo\" Rosseaux for his independent VST header\n"
 		"https://blog.rosseaux.net/\n"
@@ -673,7 +636,7 @@ mpt::ustring GetFullCreditsString()
 #endif
 		"Storlek for all the IT compatibility hints and testcases\n"
 		"as well as the IMF, MDL, OKT and ULT loaders\n"
-		"http://schismtracker.org/\n"
+		"https://schismtracker.org/\n"
 		"\n"
 		"Sergei \"x0r\" Kolzun for various hints on Scream Tracker 2 compatibility\n"
 		"https://github.com/viiri/st2play\n"
@@ -685,7 +648,7 @@ mpt::ustring GetFullCreditsString()
 		"https://github.com/iamgreaser/it2everything/\n"
 		"\n"
 		"Antti S. Lankila for Amiga resampler implementation\n"
-		"https://bel.fi/alankila/modguide/interpolate.txt\n"
+		"https://web.archive.org/web/20221228071135/https://bel.fi/alankila/modguide/\n"
 		"\n"
 		"Shayde / Reality Productions for Opal OPL3 emulator\n"
 		"https://www.3eality.com/\n"
@@ -713,9 +676,14 @@ mpt::ustring GetFullCreditsString()
 		"https://rarlab.com/\n"
 		"\n"
 #endif
+#ifdef MPT_WITH_ANCIENT
+		"Teemu Suutari for ancient\n"
+		"https://github.com/temisu/ancient\n"
+		"\n"
+#endif
 #ifdef MPT_WITH_PORTAUDIO
 		"PortAudio contributors\n"
-		"http://www.portaudio.com/\n"
+		"https://www.portaudio.com/\n"
 		"\n"
 #endif
 #ifdef MPT_WITH_RTAUDIO
@@ -794,21 +762,24 @@ mpt::ustring GetFullCreditsString()
 		"https://www.behance.net/ulfurkolka\n"
 		"\n"
 		"Nobuyuki for file icon\n"
-		"https://twitter.com/nobuyukinyuu\n"
+		"https://github.com/nobuyukinyuu/\n"
+		"\n"
+		"ESI Audiotechnik GmbH for testing hardware\n"
+		"https://www.esi-audio.com/\n"
 		"\n"
 #endif
 		"Daniel Collin (emoon/TBL) for providing test infrastructure\n"
-		"https://twitter.com/daniel_collin\n"
+		"https://mastodon.gamedev.place/@daniel_collin\n"
 		"\n"
-		"The people at ModPlug forums for crucial contribution\n"
+		"The people in the ModPlug community for crucial contribution\n"
 		"in the form of ideas, testing and support;\n"
 		"thanks particularly to:\n"
-		"33, 8bitbubsy, Anboi, BooT-SectoR-ViruZ, Bvanoudtshoorn\n"
-		"christofori, cubaxd, Diamond, Ganja, Georg, Goor00,\n"
-		"Harbinger, jmkz, KrazyKatz, LPChip, Nofold, Rakib, Sam Zen\n"
+		"33, 8bitbubsy, AliceLR, Anboi, BooT-SectoR-ViruZ, Bvanoudtshoorn\n"
+		"a11cf0, christofori, cubaxd, Diamond, Ganja, Georg, Goor00,\n"
+		"Harbinger, jmkz, KrazyKatz, LPChip, MiDoRi, Nofold, Rakib, Sam Zen\n"
 		"Skaven, Skilletaudio, Snu, Squirrel Havoc, Teimoso, Waxhead\n"
 		"\n"
-#ifndef NO_VST
+#ifdef MPT_WITH_VST
 		"VST PlugIn Technology by Steinberg Media Technologies GmbH\n"
 		"\n"
 #endif
@@ -822,7 +793,7 @@ mpt::ustring GetFullCreditsString()
 mpt::ustring GetLicenseString()
 {
 	return MPT_UTF8(
-		"Copyright (c) 2004-2020, OpenMPT Project Developers and Contributors" "\n"
+		"Copyright (c) 2004-2025, OpenMPT Project Developers and Contributors" "\n"
 		"Copyright (c) 1997-2003, Olivier Lapicque" "\n"
 		"All rights reserved." "\n"
 		"" "\n"

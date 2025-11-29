@@ -1,7 +1,7 @@
 --
 -- tests/actions/vstudio/vc2010/test_link.lua
 -- Validate linking and project references in Visual Studio 2010 C/C++ projects.
--- Copyright (c) 2011-2013 Jason Perkins and the Premake project
+-- Copyright (c) 2011-2013 Jess Perkins and the Premake project
 --
 
 	local p = premake
@@ -723,7 +723,7 @@
 		]]
 	end
 
-	--
+--
 -- Test ignoring default libraries with extensions specified.
 --
 
@@ -737,4 +737,63 @@
 	<AssemblyDebug>true</AssemblyDebug>
 </Link>
 		]]
+	end
+
+--
+-- Test for not including additional dependencies.
+--
+
+	function suite.inheritDependenciesOff()
+		inheritdependencies "Off"
+		prepare()
+		test.capture [[
+<Link>
+	<SubSystem>Windows</SubSystem>
+	<AdditionalDependencies></AdditionalDependencies>
+	<ImportLibrary>bin\Debug\MyProject.lib</ImportLibrary>
+</Link>
+		]]
+	end
+
+	function suite.inheritDependenciesOn()
+		inheritdependencies "On"
+		links { "kernel32" }
+		prepare()
+		test.capture [[
+<Link>
+	<SubSystem>Windows</SubSystem>
+	<AdditionalDependencies>kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+	<ImportLibrary>bin\Debug\MyProject.lib</ImportLibrary>
+</Link>
+		]]
+	end
+
+
+--
+-- Test for the Profile flag.
+--
+
+	function suite.profileOn()
+		profile "On"
+		prepare()
+		test.capture [[
+<Link>
+	<SubSystem>Windows</SubSystem>
+	<ImportLibrary>bin\Debug\MyProject.lib</ImportLibrary>
+	<Profile>true</Profile>
+</Link>
+	]]
+	end
+
+
+	function suite.profileOff()
+		profile "Off"
+		prepare()
+		test.capture [[
+<Link>
+	<SubSystem>Windows</SubSystem>
+	<ImportLibrary>bin\Debug\MyProject.lib</ImportLibrary>
+	<Profile>false</Profile>
+</Link>
+	]]
 	end

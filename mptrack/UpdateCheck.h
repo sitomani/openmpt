@@ -10,18 +10,20 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
-#include "../common/mptUUID.h"
+#include "mpt/uuid/uuid.hpp"
 
-#include <time.h>
+#include "../common/mptTime.h"
 
 #include <atomic>
 
-#include "resource.h"
 #include "Settings.h"
 
 OPENMPT_NAMESPACE_BEGIN
+
+
+#if defined(MPT_ENABLE_UPDATE)
 
 
 namespace HTTP {
@@ -35,6 +37,16 @@ enum UpdateChannel : uint32
 	UpdateChannelDevelopment = 3,
 };
 
+struct UpdateCheckResult
+{
+	mpt::chrono::default_system_clock::time_point CheckTime = mpt::chrono::default_system_clock::time_point{};
+	std::vector<std::byte> json;
+	bool IsFromCache() const noexcept
+	{
+		return CheckTime == mpt::chrono::default_system_clock::time_point{};
+	}
+};
+
 class CUpdateCheck
 {
 
@@ -46,21 +58,17 @@ public:
 
 	static mpt::ustring GetStatisticsUserInformation(bool shortText);
 
-#if MPT_UPDATE_LEGACY
-	static mpt::ustring GetDefaultChannelReleaseURL();
-	static mpt::ustring GetDefaultChannelNextURL();
-	static mpt::ustring GetDefaultChannelDevelopmentURL();
-#endif // MPT_UPDATE_LEGACY
-
 	static std::vector<mpt::ustring> GetDefaultUpdateSigningKeysRootAnchors();
 	static mpt::ustring GetDefaultAPIURL();
 	
-	int32 GetNumCurrentRunningInstances();
+	static int32 GetNumCurrentRunningInstances();
 
 	static bool IsSuitableUpdateMoment();
 
 	static void DoAutoUpdateCheck() { StartUpdateCheckAsync(true); }
 	static void DoManualUpdateCheck() { StartUpdateCheckAsync(false); }
+
+	static void WaitForUpdateCheckFinished();
 
 public:
 
@@ -79,15 +87,10 @@ public:
 
 	struct Settings
 	{
+		Version previousVersion;
 		int32 periodDays;
 		UpdateChannel channel;
 		mpt::PathString persistencePath;
-#if MPT_UPDATE_LEGACY
-		bool modeLegacy;
-		mpt::ustring channelReleaseURL;
-		mpt::ustring channelNextURL;
-		mpt::ustring channelDevelopmentURL;
-#endif // MPT_UPDATE_LEGACY
 		mpt::ustring apiURL;
 		bool sendStatistics;
 		mpt::UUID statisticsUUID;
@@ -97,9 +100,12 @@ public:
 	class Error
 		: public std::runtime_error
 	{
+	private:
+		CString m_Message;
 	public:
 		Error(CString errorMessage);
 		Error(CString errorMessage, DWORD errorCode);
+		CString GetMessage() const;
 	protected:
 		static CString FormatErrorCode(CString errorMessage, DWORD errorCode);
 	};
@@ -111,45 +117,22 @@ public:
 		Cancel();
 	};
 
-	struct Result
-	{
-		time_t CheckTime;
-		std::vector<std::byte> json;
-#if MPT_UPDATE_LEGACY
-		bool UpdateAvailable;
-		CString Version;
-		CString Date;
-		CString URL;
-#endif // MPT_UPDATE_LEGACY
-		Result()
-			: CheckTime(time_t())
-#if MPT_UPDATE_LEGACY
-			, UpdateAvailable(false)
-#endif // MPT_UPDATE_LEGACY
-		{
-			return;
-		}
-	};
-
 	static bool IsAutoUpdateFromMessage(WPARAM wparam, LPARAM lparam);
 
-	static CUpdateCheck::Result ResultFromMessage(WPARAM wparam, LPARAM lparam);
-	static CUpdateCheck::Error ErrorFromMessage(WPARAM wparam, LPARAM lparam);
+	static const UpdateCheckResult &MessageAsResult(WPARAM wparam, LPARAM lparam);
+	static const CUpdateCheck::Error &MessageAsError(WPARAM wparam, LPARAM lparam);
 
-	static void ShowSuccessGUI(WPARAM wparam, LPARAM lparam);
-	static void ShowFailureGUI(WPARAM wparam, LPARAM lparam);
+	static void AcknowledgeSuccess(const UpdateCheckResult &result);
 
-	static mpt::ustring GetFailureMessage(WPARAM wparam, LPARAM lparam);
+	static void ShowSuccessGUI(const bool autoUpdate, const UpdateCheckResult &result);
+	static void ShowFailureGUI(const bool autoUpdate, const CUpdateCheck::Error &error);
 
 public:
 
-#if MPT_UPDATE_LEGACY
-	// v2
-	static mpt::ustring GetUpdateURLV2(const Settings &settings);
-#endif // MPT_UPDATE_LEGACY
-
 	// v3
 	static std::string GetStatisticsDataV3(const Settings &settings);  // UTF8
+
+	static mpt::PathString GetUpdateTempDirectory(bool portable);
 
 protected:
 
@@ -165,16 +148,15 @@ protected:
 
 	static void CheckForUpdate(const CUpdateCheck::Settings &settings, const CUpdateCheck::Context &context);
 
-	static CUpdateCheck::Result SearchUpdate(const CUpdateCheck::Context &context, const CUpdateCheck::Settings &settings, const std::string &statistics); // may throw
+	static UpdateCheckResult SearchUpdate(const CUpdateCheck::Context &context, const CUpdateCheck::Settings &settings, const std::string &statistics); // may throw
+
+	static void CleanOldUpdates(mpt::PathString dirTemp);
 
 	static void CleanOldUpdates(const CUpdateCheck::Settings &settings, const CUpdateCheck::Context &context);
 
 	static void SendStatistics(HTTP::InternetSession &internet, const CUpdateCheck::Settings &settings, const std::string &statistics); // may throw
 
-#if MPT_UPDATE_LEGACY
-	static CUpdateCheck::Result SearchUpdateLegacy(HTTP::InternetSession &internet, const CUpdateCheck::Settings &settings); // may throw
-#endif // MPT_UPDATE_LEGACY
-	static CUpdateCheck::Result SearchUpdateModern(HTTP::InternetSession &internet, const CUpdateCheck::Settings &settings); // may throw
+	static UpdateCheckResult SearchUpdateModern(HTTP::InternetSession &internet, const CUpdateCheck::Settings &settings); // may throw
 
 };
 
@@ -204,6 +186,9 @@ private:
 	SettingChangedNotifyGuard m_SettingChangedNotifyGuard;
 	CComboBox m_CbnUpdateFrequency;
 };
+
+
+#endif // MPT_ENABLE_UPDATE
 
 
 OPENMPT_NAMESPACE_END

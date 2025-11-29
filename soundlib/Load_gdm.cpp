@@ -34,7 +34,7 @@ struct GDMFileHeader
 	uint16le trackerID;         // Composing Tracker ID code (00 = 2GDM)
 	uint8le  trackerMajorVer;   // Tracker's major version
 	uint8le  trackerMinorVer;   // Tracker's minor version
-	uint8le  panMap[32];        // 0-Left to 15-Right, 255-N/U
+	uint8le  panMap[32];        // 0-Left to 15-Right, 16=Surround, 255-N/U
 	uint8le  masterVol;         // Range: 0...64
 	uint8le  tempo;             // Initial music tempo (6)
 	uint8le  bpm;               // Initial music BPM (125)
@@ -57,6 +57,11 @@ struct GDMFileHeader
 	uint16le scrollyScriptLength;
 	uint32le textGraphicOffset;    // Offset of text graphic (huh?)
 	uint16le textGraphicLength;
+
+	uint8 GetNumChannels() const
+	{
+		return static_cast<uint8>(std::distance(std::begin(panMap), std::find(std::begin(panMap), std::end(panMap), uint8_max)));
+	}
 };
 
 MPT_BINARY_STRUCT(GDMFileHeader, 157)
@@ -103,11 +108,11 @@ static constexpr const mpt::uchar * gdmFormatOriginFormat[] =
 	UL_(""),
 	UL_("Generic MOD"),
 	UL_("MultiTracker"),
-	UL_("ScreamTracker 3"),
+	UL_("Scream Tracker 3"),
 	UL_("Composer 669 / UNIS 669"),
 	UL_("Farandole Composer"),
 	UL_("UltraTracker"),
-	UL_("ScreamTracker 2"),
+	UL_("Scream Tracker 2"),
 	UL_("OctaMED"),
 	UL_("Epic Megagames MASI")
 };
@@ -120,7 +125,8 @@ static bool ValidateHeader(const GDMFileHeader &fileHeader)
 		|| std::memcmp(fileHeader.magic2, "GMFS", 4)
 		|| fileHeader.formatMajorVer != 1 || fileHeader.formatMinorVer != 0
 		|| fileHeader.originalFormat >= std::size(gdmFormatOrigin)
-		|| fileHeader.originalFormat == 0)
+		|| fileHeader.originalFormat == 0
+		|| !fileHeader.GetNumChannels())
 	{
 		return false;
 	}
@@ -162,10 +168,11 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 		return true;
 	}
 
-	InitializeGlobals(gdmFormatOrigin[fileHeader.originalFormat]);
+	InitializeGlobals(gdmFormatOrigin[fileHeader.originalFormat], fileHeader.GetNumChannels());
+	m_SongFlags.set(SONG_IMPORTED);
 
-	m_modFormat.formatName = U_("General Digital Music");
-	m_modFormat.type = U_("gdm");
+	m_modFormat.formatName = UL_("General Digital Music");
+	m_modFormat.type = UL_("gdm");
 	m_modFormat.madeWithTracker = MPT_UFORMAT("BWSB 2GDM {}.{}")(fileHeader.trackerMajorVer, fileHeader.formatMinorVer);
 	m_modFormat.originalType = gdmFormatOriginType[fileHeader.originalFormat];
 	m_modFormat.originalFormatName = gdmFormatOriginFormat[fileHeader.originalFormat];
@@ -184,10 +191,8 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 	}
 
 	// Read channel pan map... 0...15 = channel panning, 16 = surround channel, 255 = channel does not exist
-	m_nChannels = 32;
-	for(CHANNELINDEX i = 0; i < 32; i++)
+	for(CHANNELINDEX i = 0; i < GetNumChannels(); i++)
 	{
-		ChnSettings[i].Reset();
 		if(fileHeader.panMap[i] < 16)
 		{
 			ChnSettings[i].nPan = static_cast<uint16>(std::min((fileHeader.panMap[i] * 16) + 8, 256));
@@ -195,20 +200,12 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 		{
 			ChnSettings[i].nPan = 128;
 			ChnSettings[i].dwFlags = CHN_SURROUND;
-		} else if(fileHeader.panMap[i] == 0xFF)
-		{
-			m_nChannels = i;
-			break;
 		}
-	}
-	if(m_nChannels < 1)
-	{
-		return false;
 	}
 
 	m_nDefaultGlobalVolume = std::min(fileHeader.masterVol * 4u, 256u);
-	m_nDefaultSpeed = fileHeader.tempo;
-	m_nDefaultTempo.Set(fileHeader.bpm);
+	Order().SetDefaultSpeed(fileHeader.tempo);
+	Order().SetDefaultTempoInt(fileHeader.bpm);
 
 	// Read orders
 	if(file.Seek(fileHeader.orderOffset))
@@ -340,14 +337,14 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 
 		for(ROWINDEX row = 0; row < 64; row++)
 		{
-			PatternRow rowBase = Patterns[pat].GetRow(row);
+			auto rowBase = Patterns[pat].GetRow(row);
 
 			uint8 channelByte;
 			// If channel byte is zero, advance to next row.
 			while((channelByte = chunk.ReadUint8()) != rowDone)
 			{
 				CHANNELINDEX channel = channelByte & channelMask;
-				if(channel >= m_nChannels) break; // Better safe than sorry!
+				if(channel >= GetNumChannels()) break; // Better safe than sorry!
 
 				ModCommand &m = rowBase[channel];
 
@@ -359,7 +356,7 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 					if(note)
 					{
 						note = (note & 0x7F) - 1;  // High bit = no-retrig flag (notes with portamento have this set)
-						m.note = (note & 0x0F) + 12 * (note >> 4) + 12 + NOTE_MIN;
+						m.note = static_cast<ModCommand::NOTE>((note & 0x0F) + 12 * (note >> 4) + 12 + NOTE_MIN);
 						if(!m.IsAmigaNote())
 						{
 							onlyAmigaNotes = false;
@@ -430,9 +427,20 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 							break;
 
 						case CMD_MODCMDEX:
-							if(!modSpecs.HasCommand(CMD_MODCMDEX))
+							switch(m.param >> 4)
 							{
-								m.ExtendedMODtoS3MEffect();
+							case 0x8:
+								m.command = CMD_PORTAMENTOUP;
+								m.param = 0xE0 | (m.param & 0x0F);
+								break;
+							case 0x9:
+								m.command = CMD_PORTAMENTODOWN;
+								m.param = 0xE0 | (m.param & 0x0F);
+								break;
+							default:
+								if(!modSpecs.HasCommand(CMD_MODCMDEX))
+									m.ExtendedMODtoS3MEffect();
+								break;
 							}
 							break;
 
@@ -447,67 +455,37 @@ bool CSoundFile::ReadGDM(FileReader &file, ModLoadingFlags loadFlags)
 
 						case CMD_S3MCMDEX:
 							// Some really special commands
-							switch(m.param >> 4)
+							if(m.param == 0x01)
 							{
-							case 0x0:
-								switch(m.param & 0x0F)
-								{
-								case 0x0:	// Surround Off
-								case 0x1:	// Surround On
-									m.param += 0x90;
-									break;
-								case 0x2:	// Set normal loop - not implemented in BWSB or 2GDM.
-								case 0x3:	// Set bidi loop - ditto
-									m.command = CMD_NONE;
-									break;
-								case 0x4:	// Play sample forwards
-									m.command = CMD_S3MCMDEX;
-									m.param = 0x9E;
-									break;
-								case 0x5:	// Play sample backwards
-									m.command = CMD_S3MCMDEX;
-									m.param = 0x9F;
-									break;
-								case 0x6:	// Monaural sample - also not implemented.
-								case 0x7:	// Stereo sample - ditto
-								case 0x8:	// Stop sample on end - ditto
-								case 0x9:	// Loop sample on end - ditto
-								default:
-									m.command = CMD_NONE;
-									break;
-								}
-								break;
-
-							case 0x8:		// 4-Bit Panning
-								if(!modSpecs.HasCommand(CMD_S3MCMDEX))
-								{
+								// Surround (implemented in 2GDM but not in BWSB itself)
+								m.param = 0x91;
+							} else if((m.param & 0xF0) == 0x80)
+							{
+								// 4-Bit Panning
+								if (!modSpecs.HasCommand(CMD_S3MCMDEX))
 									m.command = CMD_MODCMDEX;
-								}
-								break;
-
-							case 0xD:	// Adjust frequency (increment in hz) - also not implemented.
-							default:
+							} else
+							{
+								// All other effects are implemented neither in 2GDM nor in BWSB.
 								m.command = CMD_NONE;
-								break;
 							}
+							break;
+
+						default:
 							break;
 						}
 
 						// Move pannings to volume column - should never happen
 						if(m.command == CMD_S3MCMDEX && ((m.param >> 4) == 0x8) && m.volcmd == VOLCMD_NONE)
 						{
-							m.volcmd = VOLCMD_PANNING;
-							m.vol = ((m.param & 0x0F) * 64 + 8) / 15;
-							m.command = oldCmd.command;
-							m.param = oldCmd.param;
+							m.SetVolumeCommand(VOLCMD_PANNING, static_cast<ModCommand::VOL>(((m.param & 0x0F) * 64 + 8) / 15));
+							m.SetEffectCommand(oldCmd);
 						}
 
 						if(!(effByte & effectMore))
 							break;
 					}
-
 				}
-
 			}
 		}
 	}

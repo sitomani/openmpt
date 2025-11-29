@@ -17,16 +17,16 @@ General hints
   a subset of ProTracker MOD).
 * When reading binary structs from the file, use our data types with defined
   endianness, which can be found in `common/Endianness.h`:
-  * Big-Endian: (u)int8/16/32/64be, float32be, float64be
-  * Little-Endian: (u)int8/16/32/64le, float32le, float64le
+  * Big-Endian: (u)int8/16/24/32/64be, float32be, float64be
+  * Little-Endian: (u)int8/16/24/32/64le, float32le, float64le
 
   Entire structs containing integers with defined endianness can be read in one
   go if they are tagged with `MPT_BINARY_STRUCT` (see existing loaders for an
   example).
-* `m_nChannels` **MUST NOT** be changed after a pattern has been created, as
-  existing patterns will be interpreted incorrectly. For module formats that
-  support per-pattern channel amounts, the maximum number of channels must be
-  determined beforehand.
+* `CSoundFile::ChnSettings` **MUST NOT** be resized after a pattern has been
+  created, as existing patterns will be interpreted incorrectly. For module
+  formats that support per-pattern channel amounts, the maximum number of
+  channels must be determined beforehand.
 * Strings can be safely handled using:
   * `FileReader::ReadString` and friends for reading them directly from a file
   * `mpt::String::ReadBuf` for reading them from a struct or char array
@@ -36,10 +36,10 @@ General hints
   character.
 * Do not use non-const static variables in your loader. Loaders need to be
   thread-safe for libopenmpt.
-* `FileReader` instances may be used to treat a portion of another file as its
-  own independent file (through `FileReader::ReadChunk`). This can be useful
-  with "embedded files" such as WAV or Ogg samples. Container formats are
-  another good example for this usage.
+* `FileReader` instances may be used to treat a portion of a file as its own
+  independent file (through `FileReader::ReadChunk`). This can be useful with
+  "embedded files" such as WAV or Ogg samples (see MO3 or SymMOD for examples).
+  Container formats such as UMX are another good example for this usage.
 * Samples *either* use middle-C frequency *or* finetune + transpose. For the few
   weird formats that use both, it may make sense to translate everything into
   middle-C frequency.
@@ -54,15 +54,19 @@ General hints
   quantities for OpenMPT's constants like MAX_SAMPLES, MAX_PATTERN_ROWS, etc.
   These may change at any time.
 * Pay attention to off-by-one errors when comparing against MAX_SAMPLES and
-  MAX_INSTRUMENTS, since sample and instrument numbers are 1-based. 
-* Placement of the loader function in `CSoundFile::Create` depends on various
-  factors. In general, module formats that have very bad magic numbers (and thus
-  might cause other formats to get mis-interpreted) should be placed at the
-  bottom of the list. Two notable examples are 669 files, where the first two
-  bytes of the file are "if" (which may e.g. cause a song title starting with
-  "if ..." in various other formats to be interpreted as a 669 module), and of
-  course Ultimate SoundTracker modules, which have no magic bytes at all.
-* Avoid use of functions tagged with MPT_DEPRECATED.
+  MAX_INSTRUMENTS, since sample and instrument numbers are 1-based. Prefer using
+  `CSoundFile::CanAddMoreSamples` and `CSoundFile::CanAddMoreInstruments` to
+  check if a given amount of samples or instruments can be added to the file
+  rather than doing the calculations yourself.
+* Placement of the loader function in the `ModuleFormatLoaders` array in
+  Sndfile.cpp depends on various factors. In general, module formats that have
+  very bad magic numbers (and thus might cause other formats to get
+  mis-interpreted) should be placed at the bottom of the list. Two notable
+  examples are 669 files, where the first two bytes of the file are "if"
+  (which may e.g. cause a song title starting with if ..." in various other
+  formats to be interpreted as a 669 module), and of course
+  Ultimate SoundTracker modules, which have no magic bytes at all.
+* Avoid use of functions tagged with `[[deprecated]]`.
 
 Probing
 -------
@@ -81,7 +85,7 @@ the first `CSoundFile::ProbeRecommendedSize` bytes of the file.
   any file that would normally be accepted by the loader. In particular, this
   means that any header checks must not be any more aggressive than they would
   be in the real loader (hence it is a good idea to not copy-paste this code but
-  rather put it in a separate function), and the minimum additional size passed
+  rather put it in a reusable function), and the minimum additional size passed
   to `CSoundFile::ProbeAdditionalSize` must not be higher than the biggest size
   that would cause a hard failure (i.e. returning `false`) in the module loader.
 * Probing functions **may** return ProbeSuccess for files that would be rejected
@@ -99,5 +103,8 @@ that need to be updated:
 * Run `build/regenerate_vs_projects.sh` / `build/regenerate_vs_projects.cmd`
   (depending on your platform)
 * Add file extension to `installer/filetypes-*.iss`.
-* Add file extension to `CTrackApp::OpenModulesDialog` in `mptrack/Mptrack.cpp`.
+* Add file extension to `CTrackApp::OpenModulesDialog` in `mptrack/Mptrack.cpp`
+  as required (e.g. if it's a compressed container format or if it's relevant
+  enough to be mentioned).
 * Add format information to `soundlib/Tables.cpp`.
+* Add magic bytes to  `contrib/fuzzing/all_formats.dict`.

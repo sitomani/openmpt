@@ -12,6 +12,12 @@
 
 #ifdef MPT_WITH_UNRAR
 
+#include "mpt/string_transcode/transcode.hpp"
+#include "mpt/uuid/uuid.hpp"
+#include "../common/mptRandom.h"
+#include "../common/mptFileIO.h"
+#include "../common/mptFileTemporary.h"
+
 #if MPT_OS_WINDOWS
  #include <windows.h>
 #else // !MPT_OS_WINDOWS
@@ -54,12 +60,12 @@ struct RARHandle // RAII
 static int CALLBACK RARCallback(unsigned int msg, LPARAM userData, LPARAM p1, LPARAM p2)
 {
 	int result = 0;
-	CRarArchive *that = reinterpret_cast<CRarArchive *>(userData);
+	CRarArchive &that = *mpt::void_ptr<CRarArchive>(mpt::pointer_cast<void*>(userData));
 	switch(msg)
 	{
 	case UCM_PROCESSDATA:
 		// Receive extracted data
-		that->RARCallbackProcessData(reinterpret_cast<const char *>(p1), p2);
+		that.RARCallbackProcessData(mpt::pointer_cast<const char*>(p1), p2);
 		result = 1;
 		break;
 	default:
@@ -93,7 +99,7 @@ CRarArchive::CRarArchive(FileReader &file)
 	// files are pretty useless for OpenMPT anyway).
 
 	// Early reject files with no Rar! magic
-	// so that we do not have to instantiate OnDiskFileWrapper.
+	// so that we do not have to instantiate FileAdapter.
 	inFile.Rewind();
 	if(!inFile.ReadMagic("Rar!\x1A"))
 	{
@@ -101,17 +107,16 @@ CRarArchive::CRarArchive(FileReader &file)
 	}
 	inFile.Rewind();
 
-	diskFile = std::make_unique<OnDiskFileWrapper>(inFile);
+	diskFile = std::make_unique<mpt::IO::FileAdapter<FileCursor>>(inFile, mpt::TemporaryPathname{P_("rar")}.GetPathname());
 	if(!diskFile->IsValid())
 	{
 		return;
 	}
 
-	std::wstring ArcName = diskFile->GetFilename().ToWide();
+	std::wstring ArcName = mpt::transcode<std::wstring>(diskFile->GetFilename());
 	std::vector<wchar_t> ArcNameBuf(ArcName.c_str(), ArcName.c_str() + ArcName.length() + 1);
 	std::vector<wchar_t> CmtBuf(65536);
-	RAROpenArchiveDataEx ArchiveData;
-	MemsetZero(ArchiveData);
+	RAROpenArchiveDataEx ArchiveData = {};
 	ArchiveData.OpenMode = RAR_OM_LIST;
 	ArchiveData.ArcNameW = ArcNameBuf.data();
 	ArchiveData.CmtBufW = CmtBuf.data();
@@ -145,8 +150,7 @@ CRarArchive::CRarArchive(FileReader &file)
 	int RARResult = 0;
 	while(!eof)
 	{
-		RARHeaderDataEx HeaderData;
-		MemsetZero(HeaderData);
+		RARHeaderDataEx HeaderData = {};
 		RARResult = RARReadHeaderEx(rar, &HeaderData);
 		switch(RARResult)
 		{
@@ -163,7 +167,7 @@ CRarArchive::CRarArchive(FileReader &file)
 		}
 		ArchiveFileInfo fileInfo;
 		fileInfo.name = mpt::PathString::FromWide(HeaderData.FileNameW);
-		fileInfo.type = ArchiveFileNormal;
+		fileInfo.type = ArchiveFileType::Normal;
 		fileInfo.size = HeaderData.UnpSize;
 		contents.push_back(fileInfo);
 		RARResult = RARProcessFileW(rar, RAR_SKIP, NULL, NULL);
@@ -199,14 +203,13 @@ bool CRarArchive::ExtractFile(std::size_t index)
 		return false;
 	}
 
-	std::wstring ArcName = diskFile->GetFilename().ToWide();
+	std::wstring ArcName = mpt::transcode<std::wstring>(diskFile->GetFilename());
 	std::vector<wchar_t> ArcNameBuf(ArcName.c_str(), ArcName.c_str() + ArcName.length() + 1);
-	RAROpenArchiveDataEx ArchiveData;
-	MemsetZero(ArchiveData);
+	RAROpenArchiveDataEx ArchiveData = {};
 	ArchiveData.OpenMode = RAR_OM_EXTRACT;
 	ArchiveData.ArcNameW = ArcNameBuf.data();
 	ArchiveData.Callback = RARCallback;
-	ArchiveData.UserData = reinterpret_cast<LPARAM>(this);
+	ArchiveData.UserData = mpt::pointer_cast<LPARAM>(this);
 	RARHandle rar(RAROpenArchiveEx(&ArchiveData));
 	if(!rar)
 	{
@@ -219,8 +222,7 @@ bool CRarArchive::ExtractFile(std::size_t index)
 	bool eof = false;
 	while(!eof)
 	{
-		RARHeaderDataEx HeaderData;
-		MemsetZero(HeaderData);
+		RARHeaderDataEx HeaderData = {};
 		RARResult = RARReadHeaderEx(rar, &HeaderData);
 		switch(RARResult)
 		{

@@ -9,8 +9,8 @@
  * This file includes the master sample rate converter (resampler) class that
  * combines all elements of this library into a single front-end class.
  *
- * r8brain-free-src Copyright (c) 2013-2019 Aleksey Vaneev
- * See the "License.txt" file for license.
+ * r8brain-free-src Copyright (c) 2013-2022 Aleksey Vaneev
+ * See the "LICENSE" file for license.
  */
 
 #ifndef R8B_CDSPRESAMPLER_INCLUDED
@@ -28,8 +28,8 @@ namespace r8b {
  *
  * This class can be considered the "master" sample rate converter (resampler)
  * class since it combines all functionality of this library into a single
- * front-end class to perform sample rate conversion to/from any sample rate,
- * including non-integer sample rates.
+ * front-end class that performs sample rate conversion to/from any sample
+ * rate, including non-integer sample rates.
  *
  * Note that objects of this class can be constructed on the stack as it has a
  * small member data size. The default template parameters of this class are
@@ -64,13 +64,13 @@ public:
 	 * have to specify a higher ReqAtten value if you need a totally clean
 	 * high-frequency content. On the other hand, it may not be reasonable to
 	 * have a high-frequency content cleaner than the input signal itself: if
-	 * the input signal is 16-bit, setting ReqAtten to 150 will make its
+	 * the input signal is 16-bit, setting ReqAtten to 180 will make its
 	 * high-frequency content 24-bit, but the original part of the signal will
 	 * remain 16-bit.
 	 *
-	 * @param SrcSampleRate Source signal sample rate. Both sample rates can
+	 * @param SrcSampleRate Source signal's sample rate. Both sample rates can
 	 * be specified as a ratio, e.g. SrcSampleRate = 1.0, DstSampleRate = 2.0.
-	 * @param DstSampleRate Destination signal sample rate. The "power of 2"
+	 * @param DstSampleRate Destination signal's sample rate. The "power of 2"
 	 * ratios between the source and destination sample rates force resampler
 	 * to use several fast "power of 2" resampling steps, without using
 	 * fractional interpolation at all.
@@ -87,21 +87,21 @@ public:
 	 * downsampling is performed) between filter's -3 dB point and the Nyquist
 	 * frequency. The range is from CDSPFIRFilter::getLPMinTransBand() to
 	 * CDSPFIRFilter::getLPMaxTransBand(), inclusive. When upsampling 88200 or
-	 * 96000 audio to a higher sample rates the ReqTransBand can be
-	 * considerably increased, up to 30. The selection of ReqTransBand depends
-	 * on the level of desire to preserve the high-frequency content. While
-	 * values 0.5 to 2 are extremely "greedy" settings, not necessary in most
-	 * cases, values 2 to 3 can be used in most cases. Values 3 to 4 are
-	 * relaxed settings, but they still offer a flat frequency response up to
-	 * 21kHz with 44.1k source or destination sample rate.
+	 * 96000 audio to higher sample rates the ReqTransBand can be considerably
+	 * increased, up to 30. The selection of ReqTransBand depends on the level
+	 * of desire to preserve the high-frequency content. While values 0.5 to 2
+	 * are extremely "greedy" settings, not necessary in most cases, values 2
+	 * to 3 can be used in most cases. Values 3 to 4 are relaxed settings, but
+	 * they still offer a flat frequency response up to 21kHz with 44.1k
+	 * source or destination sample rate.
 	 * @param ReqAtten Required stop-band attenuation in decibel, in the
 	 * range CDSPFIRFilter::getLPMinAtten() to CDSPFIRFilter::getLPMaxAtten(),
 	 * inclusive. The actual attenuation may be 0.40-4.46 dB higher. The
 	 * general formula for selecting the ReqAtten is 6.02 * Bits + 40, where
 	 * "Bits" is the bit resolution (e.g. 16, 24), "40" is an added resolution
-	 * for stationary signals, this value can be decreased to 20 to 10 if the
-	 * signal being resampled is mostly non-stationary (e.g. impulse
-	 * response).
+	 * for dynamic signals; this value can be decreased to 20 to 10 if the
+	 * signal being resampled is non-dynamic (e.g., an impulse response or
+	 * filter, with a non-steep frequency response).
 	 * @param ReqPhase Required filter's phase response. Note that this
 	 * setting does not affect interpolator's phase response which is always
 	 * linear-phase. Also note that if the "power of 2" resampling was engaged
@@ -109,7 +109,7 @@ public:
 	 * stream may become fractionally delayed, depending on the minimum-phase
 	 * filter's actual fractional delay. Linear-phase filters do not have
 	 * fractional delay.
-	 * @see CDSPFIRFilterCache::getLPFilter()
+	 * @see EDSPFilterPhaseResponse
 	 */
 
 	CDSPResampler( const double SrcSampleRate, const double DstSampleRate,
@@ -213,7 +213,7 @@ public:
 			}
 		}
 
-		if( DstSampleRate * 2 > SrcSampleRate )
+		if( DstSampleRate * 2.0 > SrcSampleRate )
 		{
 			// Upsampling or fractional downsampling down to 2X.
 
@@ -224,10 +224,16 @@ public:
 				CDSPFIRFilterCache :: getLPFilter( NormFreq, ReqTransBand,
 				ReqAtten, ReqPhase, 2.0 ), 2, 1, LatencyFrac ));
 
-			// Try intermediate interpolated'd resampling with subsequent 2X
+			// Try intermediate interpolated resampling with subsequent 2X
 			// or 3X upsampling.
 
-			const double ThreshSampleRate = SrcSampleRate * 1.01;
+			const double tbw = 0.0175; // Intermediate filter's transition
+				// band extension coefficient.
+			const double ThreshSampleRate = SrcSampleRate /
+				( 1.0 - tbw * ReqTransBand ); // Make sure intermediate
+				// filter's transition band is not steeper than ReqTransBand
+				// (this keeps the latency under control).
+
 			int c = 0;
 			int div = 1;
 
@@ -293,18 +299,25 @@ public:
 				addProcessor( new CDSPFracInterpolator( SrcSampleRate2 * div,
 					DstSampleRate, ReqAtten, false, LatencyFrac ));
 
-				const double tb = 100.0 * ( 1.0 - SrcSampleRate * div /
-					DstSampleRate ) / 1.75; // Divide TransBand by a constant
-					// that assures a linear response in the pass-band.
+				double tb = ( 1.0 - SrcSampleRate * div / DstSampleRate ) /
+					tbw; // Divide TransBand by a constant that assures a
+					// linear response in the pass-band.
+
+				if( tb > CDSPFIRFilter :: getLPMaxTransBand() )
+				{
+					tb = CDSPFIRFilter :: getLPMaxTransBand();
+				}
 
 				addProcessor( new CDSPBlockConvolver(
 					CDSPFIRFilterCache :: getLPFilter( 1.0 / num, tb,
 					ReqAtten, ReqPhase, num ), num, 1, LatencyFrac ));
 
+				const bool IsThird = ( num == 3 );
+
 				for( i = 1; i < c; i++ )
 				{
 					addProcessor( new CDSPHBUpsampler( ReqAtten, i - 1,
-						( num == 3 ), LatencyFrac ));
+						IsThird, LatencyFrac ));
 				}
 			}
 			else
@@ -356,10 +369,10 @@ public:
 
 		for( i = 0; i < c; i++ )
 		{
-			// Use a fixed very relaxed 2X downsampling filters, that at
-			// the final stage only guarantees stop-band between 0.75 and
-			// pi. 0.5-0.75 range will be aliased to 0.25-0.5 range which
-			// will then be filtered out by the final filter.
+			// Use fixed, very relaxed 2X downsampling filters, that at the
+			// final stage only guarantee stop-band between 0.75 and pi.
+			// 0.5-0.75 range will be aliased to 0.25-0.5 range which will
+			// then be filtered out by the final filter.
 
 			addProcessor( new CDSPHBDownsampler( ReqAtten, c - 1 - i, IsThird,
 				LatencyFrac ));
@@ -388,6 +401,86 @@ public:
 		}
 	}
 
+	virtual int getInLenBeforeOutPos( const int ReqOutPos ) const
+	{
+		R8BASSERT( ReqOutPos >= 0 );
+
+		int ReqInSamples = ReqOutPos;
+		int c = StepCount;
+
+		while( --c >= 0 )
+		{
+			ReqInSamples = Steps[ c ] -> getInLenBeforeOutPos( ReqInSamples );
+		}
+
+		return( ReqInSamples );
+	}
+
+	/**
+	 * Function returns the number of input samples required to advance to
+	 * the specified output sample position (so that the next process() call
+	 * passes this output position), starting at the cleared or
+	 * after-construction state of *this object.
+	 *
+	 * This function works by iteratively passing 1 sample at a time until the
+	 * overall output length passes the specified value. This is a relatively
+	 * CPU-consuming operation. This function should be called after the
+	 * clear() function call or after object's construction. The function
+	 * itself calls the clear() function before return.
+	 *
+	 * Note that this function can be considered a legacy function, and is now
+	 * used for testing purposes. It is advised to use "instant" (much faster)
+	 * getInLenBeforeOutPos() and getInputRequiredForOutput() functions
+	 * instead.
+	 *
+	 * @param ReqOutPos The required output position. Must be a non-negative
+	 * value.
+	 * @return The number of input samples required.
+	 */
+
+	int getInLenBeforeOutStart( const int ReqOutPos = 0 )
+	{
+		R8BASSERT( ReqOutPos >= 0 );
+
+		int inc = 0;
+		int outc = 0;
+
+		while( true )
+		{
+			double ins = 0.0;
+			double* op;
+			outc += process( &ins, 1, op );
+
+			if( outc > ReqOutPos )
+			{
+				clear();
+				return( inc );
+			}
+
+			inc++;
+		}
+	}
+
+	/**
+	 * Function returns the number of input samples required to produce at
+	 * least the specified number of output samples, starting at the cleared
+	 * or after-construction state of *this object.
+	 *
+	 * @param ReqOutSamples The number of output samples required. If a
+	 * non-positive value was specified, the function returns 0.
+	 * @return The number of input samples required.
+	 */
+
+	int getInputRequiredForOutput( const int ReqOutSamples ) const
+	{
+		if( ReqOutSamples < 1 )
+		{
+			return( 0 );
+		}
+
+		return( getInLenBeforeOutPos( ReqOutSamples - 1 ) + 1 );
+	}
+
 	virtual int getLatency() const
 	{
 		return( 0 );
@@ -399,12 +492,12 @@ public:
 	}
 
 	/**
-	 * This function ignores the supplied parameter and returns the maximal
-	 * output buffer length that depends on the MaxInLen supplied to the
-	 * constructor.
+	 * @return This function ignores the supplied parameter and returns the
+	 * maximal output buffer length that depends on the MaxInLen supplied to
+	 * the constructor.
 	 */
 
-	virtual int getMaxOutLen( const int/* MaxInLen */ ) const
+	virtual int getMaxOutLen( const int/* MaxInLen */) const
 	{
 		return( CurMaxOutLen );
 	}
@@ -480,17 +573,17 @@ public:
 	/**
 	 * Function performs resampling of an input sample buffer of the specified
 	 * length in the "one-shot" mode. This function can be useful when impulse
-	 * response resampling is required.
+	 * response or time-series resampling is required.
 	 *
 	 * @param ip Input buffer pointer.
 	 * @param iplen Length of the input buffer in samples.
 	 * @param[out] op Output buffer pointer.
 	 * @param oplen Length of the output buffer in samples.
-	 * @tparam Tin Input buffer type.
-	 * @tparam Tout Output buffer type.
+	 * @tparam Tin Input buffer's element type.
+	 * @tparam Tout Output buffer's element type.
 	 */
 
-	template< class Tin, class Tout >
+	template< typename Tin, typename Tout >
 	void oneshot( const Tin* ip, int iplen, Tout* op, int oplen )
 	{
 		CFixedBuffer< double > Buf( MaxInLen );
@@ -510,7 +603,7 @@ public:
 				if( !IsZero )
 				{
 					IsZero = true;
-					memset( p, 0, MaxInLen * sizeof( double ));
+					memset( p, 0, MaxInLen * sizeof( p[ 0 ]));
 				}
 			}
 			else
@@ -551,59 +644,21 @@ public:
 		clear();
 	}
 
-	/**
-	 * Function obtains overall input sample count required to produce first
-	 * output sample. Function works by iteratively passing 1 sample at a time
-	 * until output begins. This is a relatively CPU-consuming operation. This
-	 * function should be called after the clear() function call or after
-	 * object's construction. The function itself calls the clear() function
-	 * before return.
-	 */
-
-	int getInLenBeforeOutStart()
-	{
-		int inc = 0;
-
-		while( true )
-		{
-			double ins = 0.0;
-			double* op;
-
-			if( process( &ins, 1, op ) > 0 )
-			{
-				clear();
-				return( inc );
-			}
-
-			inc++;
-		}
-	}
-
 private:
 	CFixedBuffer< CDSPProcessor* > Steps; ///< Array of processing steps.
-		///<
 	int StepCapacity; ///< The capacity of the Steps array.
-		///<
 	int StepCount; ///< The number of created processing steps.
-		///<
 	int MaxInLen; ///< Maximal input length.
-		///<
 	CFixedBuffer< double > TmpBufAll; ///< Buffer containing both temporary
 		///< buffers.
-		///<
 	double* TmpBufs[ 2 ]; ///< Temporary output buffers.
-		///<
 	int TmpBufCapacities[ 2 ]; ///< Capacities of temporary buffers, updated
 		///< during processing steps building.
-		///<
 	int CurTmpBuf; ///< Current temporary buffer.
-		///<
 	int CurMaxOutLen; ///< Current maximal output length.
-		///<
 	double LatencyFrac; ///< Current fractional latency. After object's
 		///< construction, equals to the remaining fractional latency in the
 		///< output.
-		///<
 
 	/**
 	 * Function adds processor, updates MaxOutLen variable and adjusts length
@@ -672,8 +727,8 @@ public:
 	 * Constructor initializes the 16-bit resampler. See the
 	 * r8b::CDSPResampler class for details.
 	 *
-	 * @param SrcSampleRate Source signal sample rate.
-	 * @param DstSampleRate Destination signal sample rate.
+	 * @param SrcSampleRate Source signal's sample rate.
+	 * @param DstSampleRate Destination signal's sample rate.
 	 * @param aMaxInLen The maximal planned length of the input buffer (in
 	 * samples) that will be passed to the resampler.
 	 * @param ReqTransBand Required transition band, in percent.
@@ -692,8 +747,8 @@ public:
  *
  * This class defines resampling parameters suitable for 16-bit impulse
  * response resampling, using linear-phase low-pass filter. Impulse responses
- * usually do not feature stationary signal components and thus need resampler
- * with a less SNR. See the r8b::CDSPResampler class for details.
+ * are non-dynamic signals, and thus need resampler with a lesser SNR. See the
+ * r8b::CDSPResampler class for details.
  */
 
 class CDSPResampler16IR : public CDSPResampler
@@ -703,8 +758,8 @@ public:
 	 * Constructor initializes the 16-bit impulse response resampler. See the
 	 * r8b::CDSPResampler class for details.
 	 *
-	 * @param SrcSampleRate Source signal sample rate.
-	 * @param DstSampleRate Destination signal sample rate.
+	 * @param SrcSampleRate Source signal's sample rate.
+	 * @param DstSampleRate Destination signal's sample rate.
 	 * @param aMaxInLen The maximal planned length of the input buffer (in
 	 * samples) that will be passed to the resampler.
 	 * @param ReqTransBand Required transition band, in percent.
@@ -733,8 +788,8 @@ public:
 	 * Constructor initializes the 24-bit resampler (including 32-bit floating
 	 * point). See the r8b::CDSPResampler class for details.
 	 *
-	 * @param SrcSampleRate Source signal sample rate.
-	 * @param DstSampleRate Destination signal sample rate.
+	 * @param SrcSampleRate Source signal's sample rate.
+	 * @param DstSampleRate Destination signal's sample rate.
 	 * @param aMaxInLen The maximal planned length of the input buffer (in
 	 * samples) that will be passed to the resampler.
 	 * @param ReqTransBand Required transition band, in percent.

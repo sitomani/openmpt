@@ -16,14 +16,14 @@ namespace ASIO {
 
 
 #define ASIO_MODERNSDK_VERSION_MAJOR 0
-#define ASIO_MODERNSDK_VERSION_MINOR 11
-#define ASIO_MODERNSDK_VERSION_PATCH 1
+#define ASIO_MODERNSDK_VERSION_MINOR 12
+#define ASIO_MODERNSDK_VERSION_PATCH 11
 #define ASIO_MODERNSDK_VERSION_BUILD 0
 
 
 
-#define ASIO_VERSION_BUILD_NAMESPACE_IMPL(a, b, c, d) v ## a ## _ ## b ## _ ## c
-#define ASIO_VERSION_BUILD_NAMESPACE(a, b, c, d) ASIO_VERSION_BUILD_NAMESPACE_IMPL(a, b, c, d)
+#define ASIO_VERSION_BUILD_NAMESPACE_IMPL(a, b, c, d) v##a##_##b##_##c
+#define ASIO_VERSION_BUILD_NAMESPACE(a, b, c, d)      ASIO_VERSION_BUILD_NAMESPACE_IMPL(a, b, c, d)
 
 
 
@@ -31,50 +31,51 @@ namespace ASIO {
 
 
 
-inline namespace Version {
-
-
-
 inline namespace ASIO_VERSION_NAMESPACE {
 
 
 
+inline namespace Version {
+
+
+
 struct SemanticVersion {
-	unsigned long long Major = 0;
-	unsigned long long Minor = 0;
-	unsigned long long Patch = 0;
+	unsigned long long                                                               Major = 0;
+	unsigned long long                                                               Minor = 0;
+	unsigned long long                                                               Patch = 0;
 	constexpr std::tuple<unsigned long long, unsigned long long, unsigned long long> as_tuple() const noexcept {
 		return std::make_tuple(Major, Minor, Patch);
 	}
 };
 
-constexpr bool operator == (SemanticVersion a, SemanticVersion b) noexcept {
+constexpr bool operator==(SemanticVersion a, SemanticVersion b) noexcept {
 	return a.as_tuple() == b.as_tuple();
 }
-constexpr bool operator != (SemanticVersion a, SemanticVersion b) noexcept {
+constexpr bool operator!=(SemanticVersion a, SemanticVersion b) noexcept {
 	return a.as_tuple() != b.as_tuple();
 }
-constexpr bool operator < (SemanticVersion a, SemanticVersion b) noexcept {
+constexpr bool operator<(SemanticVersion a, SemanticVersion b) noexcept {
 	return a.as_tuple() < b.as_tuple();
 }
-constexpr bool operator > (SemanticVersion a, SemanticVersion b) noexcept {
+constexpr bool operator>(SemanticVersion a, SemanticVersion b) noexcept {
 	return a.as_tuple() > b.as_tuple();
 }
-constexpr bool operator <= (SemanticVersion a, SemanticVersion b) noexcept {
+constexpr bool operator<=(SemanticVersion a, SemanticVersion b) noexcept {
 	return a.as_tuple() <= b.as_tuple();
 }
-constexpr bool operator >= (SemanticVersion a, SemanticVersion b) noexcept {
+constexpr bool operator>=(SemanticVersion a, SemanticVersion b) noexcept {
 	return a.as_tuple() >= b.as_tuple();
 }
 
 struct VersionInfo {
-	SemanticVersion SemVer;
-	unsigned long long Build = 0;
+	SemanticVersion                                                                                                  SemVer;
+	unsigned long long                                                                                               Build = 0;
 	constexpr std::tuple<std::tuple<unsigned long long, unsigned long long, unsigned long long>, unsigned long long> as_tuple() const noexcept {
 		return std::make_tuple(SemVer.as_tuple(), Build);
 	}
-	template <typename Tostream> friend Tostream & operator << (Tostream & os, VersionInfo vi) {
-		if ( vi.Build > 0 ) {
+	template <typename Tostream>
+	friend Tostream & operator<<(Tostream & os, VersionInfo vi) {
+		if (vi.Build > 0) {
 			os << vi.SemVer.Major << "." << vi.SemVer.Minor << "." << vi.SemVer.Patch << "+build." << vi.Build;
 		} else {
 			os << vi.SemVer.Major << "." << vi.SemVer.Minor << "." << vi.SemVer.Patch;
@@ -83,38 +84,44 @@ struct VersionInfo {
 	}
 };
 
-constexpr bool operator == (VersionInfo a, VersionInfo b) noexcept {
+constexpr bool operator==(VersionInfo a, VersionInfo b) noexcept {
 	return a.as_tuple() == b.as_tuple();
 }
-constexpr bool operator != (VersionInfo a, VersionInfo b) noexcept {
+constexpr bool operator!=(VersionInfo a, VersionInfo b) noexcept {
 	return a.as_tuple() != b.as_tuple();
 }
-constexpr bool operator < (VersionInfo a, VersionInfo b) noexcept {
+constexpr bool operator<(VersionInfo a, VersionInfo b) noexcept {
 	return a.as_tuple() < b.as_tuple();
 }
-constexpr bool operator > (VersionInfo a, VersionInfo b) noexcept {
+constexpr bool operator>(VersionInfo a, VersionInfo b) noexcept {
 	return a.as_tuple() > b.as_tuple();
 }
-constexpr bool operator <= (VersionInfo a, VersionInfo b) noexcept {
+constexpr bool operator<=(VersionInfo a, VersionInfo b) noexcept {
 	return a.as_tuple() <= b.as_tuple();
 }
-constexpr bool operator >= (VersionInfo a, VersionInfo b) noexcept {
+constexpr bool operator>=(VersionInfo a, VersionInfo b) noexcept {
 	return a.as_tuple() >= b.as_tuple();
 }
 
 
 
-constexpr inline VersionInfo Version = { {ASIO_VERSION_MAJOR,ASIO_VERSION_MINOR,ASIO_VERSION_PATCH},ASIO_VERSION_BUILD };
+constexpr inline VersionInfo Version = {
+	{ASIO_VERSION_MAJOR, ASIO_VERSION_MINOR, ASIO_VERSION_PATCH},
+	ASIO_VERSION_BUILD
+};
 
-constexpr inline VersionInfo ModernSDKVersion = { {ASIO_MODERNSDK_VERSION_MAJOR,ASIO_MODERNSDK_VERSION_MINOR,ASIO_MODERNSDK_VERSION_PATCH},ASIO_MODERNSDK_VERSION_BUILD };
-
-
-
-} // namespace ASIO_VERSION_NAMESPACE
+constexpr inline VersionInfo ModernSDKVersion = {
+	{ASIO_MODERNSDK_VERSION_MAJOR, ASIO_MODERNSDK_VERSION_MINOR, ASIO_MODERNSDK_VERSION_PATCH},
+	ASIO_MODERNSDK_VERSION_BUILD
+};
 
 
 
 } // namespace Version
+
+
+
+} // namespace ASIO_VERSION_NAMESPACE
 
 
 

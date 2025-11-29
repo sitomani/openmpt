@@ -1,7 +1,7 @@
 /*
  * StdAfx.h
  * --------
- * Purpose: Include file for standard system include files, or project specific include files that are used frequently, but are changed infrequently. Also includes the global build settings from BuildSettings.h.
+ * Purpose: Include file for standard system include files, or project specific include files that are used frequently, but are changed infrequently. Also includes the global build settings from openmpt/all/BuildSettings.hpp.
  * Notes  : (currently none)
  * Authors: Olivier Lapicque
  *          OpenMPT Devs
@@ -13,7 +13,8 @@
 
 
 // has to be first
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
+#include "openmpt/all/PlatformFixes.hpp"
 
 
 #if defined(MODPLUG_TRACKER)
@@ -32,10 +33,10 @@
 #include <afxcview.h>
 // cppcheck-suppress missingInclude
 #include <afxdlgs.h>
-#ifdef MPT_MFC_FULL
+#ifndef _AFX_NO_MFC_CONTROLS_IN_DIALOGS
 // cppcheck-suppress missingInclude
 #include <afxlistctrl.h>
-#endif // MPT_MFC_FULL
+#endif // !_AFX_NO_MFC_CONTROLS_IN_DIALOGS
 // cppcheck-suppress missingInclude
 #include <afxole.h>
 
@@ -58,6 +59,31 @@
 #endif
 
 
+#include "mpt/check/compiler.hpp"
+#include "mpt/check/libc.hpp"
+#include "mpt/check/libcxx.hpp"
+#if defined(MPT_WITH_MFC)
+#include "mpt/check/mfc.hpp"
+#endif
+#if MPT_OS_WINDOWS
+#include "mpt/check/windows.hpp"
+#endif
+
+#include "mpt/base/span.hpp"
+#include "mpt/exception/exception.hpp"
+#include "mpt/exception/exception_text.hpp"
+#include "mpt/out_of_memory/out_of_memory.hpp"
+#include "mpt/string/types.hpp"
+#include "mpt/system_error/system_error.hpp"
+
+#include "openmpt/base/Types.hpp"
+#include "openmpt/logging/Logger.hpp"
+
+
+#include <memory>
+#include <new>
+
+
 // this will be available everywhere
 
 #include "../common/mptBaseMacros.h"
@@ -69,6 +95,7 @@
 // <cstdint>
 
 #include "../common/mptBaseTypes.h"
+// "openmpt/base/Types.hpp"
 // "mptBaseMacros.h"
 // <array>
 // <limits>
@@ -85,34 +112,6 @@
 // <numeric>
 // <utility>
 
-#include "../common/mptException.h"
-// <exception>
-// <new>
-// <afx.h>
-
-#include "../common/mptSpan.h"
-// "mptBaseTypes.h"
-// <array>
-// <iterator>
-
-#include "../common/mptMemory.h"
-// "mptAssert.h"
-// "mptBaseTypes.h"
-// "mptSpan.h"
-// <utility>
-// <type_traits>
-// <cstring>
-
-#include "../common/mptAlloc.h"
-// "mptBaseMacros.h"
-// "mptMemory.h"
-// "mptSpan.h"
-// <version>
-// <array>
-// <memory>
-// <new>
-// <vector>
-
 #include "../common/mptString.h"
 // <algorithm>
 // <limits>
@@ -123,23 +122,13 @@
 
 #include "../common/mptStringBuffer.h"
 
-#include "../common/mptOSError.h"
-// "mptException.h"
-// "mptString.h"
-// <exception>
-// <stdexcept>
-
-#include "../common/mptExceptionText.h"
-// "mptException.h"
-// "mptString.h"
-// <exception>
-
 #include "../common/mptStringFormat.h"
 // <stdexcept>
 
 #include "../common/mptPathString.h"
 
 #include "../common/Logging.h"
+// "openmpt/logging/Logger.hpp"
 // <atomic>
 
 #include "../common/misc_util.h"

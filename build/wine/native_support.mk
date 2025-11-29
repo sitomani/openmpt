@@ -79,15 +79,42 @@ MPT_TRY_PORTAUDIO?=1
 MPT_TRY_PULSEAUDIO?=1
 MPT_TRY_RTAUDIO?=1
 
-CPPFLAGS += $(MPT_ARCH_TARGET) -Icommon -Iinclude/nlohmann-json/include -Iinclude
-CXXFLAGS += $(MPT_ARCH_TARGET) -std=gnu++17 -fpermissive -fPIC -fvisibility=hidden
-CFLAGS   += $(MPT_ARCH_TARGET) -std=c99                  -fPIC -fvisibility=hidden
-LDFLAGS  += $(MPT_ARCH_TARGET) 
+CPPFLAGS += $(MPT_ARCH_TARGET)
+CXXFLAGS += $(MPT_ARCH_TARGET)
+CFLAGS   += $(MPT_ARCH_TARGET)
+LDFLAGS  += $(MPT_ARCH_TARGET)
+LDLIBS   += 
+ARFLAGS  += 
+
+ifeq ($(shell printf '\n' > build/wine/empty.cpp ; if $(CXX) -std=gnu++23 -c build/wine/empty.cpp -o build/wine/empty.out > /dev/null 2>&1 ; then echo 'gnu++23' ; fi ), gnu++23)
+CXXFLAGS += -std=gnu++23
+else ifeq ($(shell printf '\n' > build/wine/empty.cpp ; if $(CXX) -std=gnu++20 -c build/wine/empty.cpp -o build/wine/empty.out > /dev/null 2>&1 ; then echo 'gnu++20' ; fi ), gnu++20)
+CXXFLAGS += -std=gnu++20
+else
+CXXFLAGS += -std=gnu++17
+endif
+
+ifeq ($(shell printf '\n' > build/wine/empty.c ; if $(CC) -std=c23 -c build/wine/empty.c -o build/wine/empty.out > /dev/null 2>&1 ; then echo 'c23' ; fi ), c23)
+CFLAGS   += -std=c23
+else ifeq ($(shell printf '\n' > build/wine/empty.c ; if $(CC) -std=c18 -c build/wine/empty.c -o build/wine/empty.out > /dev/null 2>&1 ; then echo 'c18' ; fi ), c18)
+CFLAGS   += -std=c18
+else ifeq ($(shell printf '\n' > build/wine/empty.c ; if $(CC) -std=c17 -c build/wine/empty.c -o build/wine/empty.out > /dev/null 2>&1 ; then echo 'c17' ; fi ), c17)
+CFLAGS   += -std=c17
+else ifeq ($(shell printf '\n' > build/wine/empty.c ; if $(CC) -std=c11 -c build/wine/empty.c -o build/wine/empty.out > /dev/null 2>&1 ; then echo 'c11' ; fi ), c11)
+CFLAGS   += -std=c11
+else
+CFLAGS   += -std=c99
+endif
+
+CPPFLAGS += -Icommon -Isrc -Iinclude/nlohmann-json/include -Iinclude
+CXXFLAGS += -fpermissive -fPIC -fvisibility=hidden
+CFLAGS   +=              -fPIC -fvisibility=hidden
+LDFLAGS  += 
 LDLIBS   += -lm -lpthread
 ARFLAGS  += 
 
-CXXFLAGS += -Os -ffast-math
-CFLAGS   += -Os -ffast-math -fno-strict-aliasing
+CXXFLAGS += -Os
+CFLAGS   += -Os -fno-strict-aliasing
 
 CXXFLAGS += -Wall -Wextra -Wundef -Wcast-qual -Wcast-align
 CFLAGS   += -Wall -Wextra -Wundef -Wcast-qual -Wcast-align
@@ -215,14 +242,14 @@ all: libopenmpt_native_support.so
 	$(SILENT)$(CCACHE) $(MPT_TARGET)$(COMPILE.c) -DMODPLUG_TRACKER -DMPT_BUILD_WINESUPPORT -DMPT_WITH_NLOHMANNJSON $(OUTPUT_OPTION) $<
 
 COMMON_CXX_SOURCES += $(wildcard common/*.cpp)
-SOUNDBASE_CXX_SOURCES += $(wildcard soundbase/*.cpp)
-SOUNDDEV_CXX_SOURCES += $(wildcard sounddev/*.cpp)
+MISC_CXX_SOURCES += $(wildcard misc/*.cpp)
+SOUNDDEVICE_CXX_SOURCES += $(wildcard src/openmpt/sounddevice/*.cpp)
 WINESUPPORT_CXX_SOURCES += $(wildcard mptrack/wine/*.cpp)
 
 OPENMPT_WINESUPPORT_CXX_SOURCES += \
  $(COMMON_CXX_SOURCES) \
- $(SOUNDBASE_CXX_SOURCES) \
- $(SOUNDDEV_CXX_SOURCES) \
+ $(MISC_CXX_SOURCES) \
+ $(SOUNDDEVICE_CXX_SOURCES) \
  $(WINESUPPORT_CXX_SOURCES) \
  
 OPENMPT_WINESUPPORT_C_SOURCES += \
