@@ -963,3 +963,5 @@
 /test/test.saved.xm
 /unarchiver/*.d
 /unarchiver/*.o
+
+libopenmpt.xcframework
