@@ -8,10 +8,11 @@
   dofile "../../build/xcode-genie/genie-defaults.lua"
   targetname "openmpt-mpg123"
   includedirs {
-   "../../include/mpg123/ports/Xcode",
+   "../../include/mpg123/ports/generic",
    "../../include/mpg123/src/libmpg123",
    "../../include/mpg123/src/compat",
-   "../../include/mpg123/src",
+   "../../include/mpg123/src/include",
+   "../../include/mpg123/src"
   }
   files {
    "../../include/mpg123/src/compat/compat.c",

@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
 
 #include <string>
@@ -37,34 +37,13 @@ CString LoadResourceString(UINT nID);
 
 namespace Util
 {
-	// Get horizontal DPI resolution
-	MPT_FORCEINLINE int GetDPIx(HWND hwnd)
+	inline DWORD64 GetTickCount64()
 	{
-		HDC dc = ::GetDC(hwnd);
-		int dpi = ::GetDeviceCaps(dc, LOGPIXELSX);
-		::ReleaseDC(hwnd, dc);
-		return dpi;
-	}
-
-	// Get vertical DPI resolution
-	MPT_FORCEINLINE int GetDPIy(HWND hwnd)
-	{
-		HDC dc = ::GetDC(hwnd);
-		int dpi = ::GetDeviceCaps(dc, LOGPIXELSY);
-		::ReleaseDC(hwnd, dc);
-		return dpi;
-	}
-
-	// Applies DPI scaling factor to some given size
-	MPT_FORCEINLINE int ScalePixels(int pixels, HWND hwnd)
-	{
-		return MulDiv(pixels, GetDPIx(hwnd), 96);
-	}
-
-	// Removes DPI scaling factor from some given size
-	MPT_FORCEINLINE int ScalePixelsInv(int pixels, HWND hwnd)
-	{
-		return MulDiv(pixels, 96, GetDPIx(hwnd));
+#if MPT_WINNT_AT_LEAST(MPT_WIN_VISTA)
+		return ::GetTickCount64();
+#else
+		return ::GetTickCount();
+#endif
 	}
 }
 

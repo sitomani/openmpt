@@ -1,5 +1,5 @@
 /*
- * ctrl_com.h
+ * Ctrl_com.h
  * ----------
  * Purpose: Song comments tab, upper panel.
  * Notes  : (currently none)
@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
+#include "Globals.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -26,8 +27,9 @@ public:
 	CCtrlComments(CModControlView &parent, CModDoc &document);
 
 	//{{AFX_VIRTUAL(CCtrlComments)
-	Setting<LONG> &GetSplitPosRef() override { return TrackerSettings::Instance().glCommentsWindowHeight; }
+	Setting<LONG> &GetSplitPosRef() override;
 	BOOL OnInitDialog() override;
+	void OnDPIChanged() override;
 	void DoDataExchange(CDataExchange *pDX) override;  // DDX/DDV support
 	void RecalcLayout() override;
 	void UpdateView(UpdateHint hint, CObject *pObj = nullptr) override;

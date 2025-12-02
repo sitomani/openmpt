@@ -11,8 +11,9 @@
 
 #include "stdafx.h"
 #include "DSP.h"
-#include "../soundbase/SampleTypes.h"
-#include <math.h>
+#include "mpt/base/numbers.hpp"
+#include "openmpt/soundbase/MixSample.hpp"
+#include <cmath>
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -36,8 +37,8 @@ static void X86_MonoDCRemoval(int *, uint32 count, int32 &nDCRFlt_Y1l, int32 &nD
 //
 
 
-#define PI	3.14159265358979323f
 static inline float Sgn(float x) { return (x >= 0) ? 1.0f : -1.0f; }
+
 static void ShelfEQ(int32 scale,
 	int32 &outA1, int32 &outB0, int32 &outB1,
 	int32 F_c, int32 F_s, float gainDC, float gainFT, float gainPI)
@@ -47,7 +48,7 @@ static void ShelfEQ(int32 scale,
 	float alpha, beta0, beta1, rho;
 	float wT, quad;
 
-	wT = PI * F_c / F_s;
+	wT = mpt::numbers::pi_v<float> * F_c / F_s;
 	gainPI2 = gainPI * gainPI;
 	gainFT2 = gainFT * gainFT;
 	gainDC2 = gainDC * gainDC;
@@ -59,12 +60,12 @@ static void ShelfEQ(int32 scale,
 	if (quad != 0)
 	{
 		float lambda = (gainPI2 - gainDC2) / quad;
-		alpha  = (float)(lambda - Sgn(lambda)*sqrt(lambda*lambda - 1.0f));
+		alpha  = lambda - Sgn(lambda)*std::sqrt(lambda*lambda - 1.0f);
 	}
 
 	beta0 = 0.5f * ((gainDC + gainPI) + (gainDC - gainPI) * alpha);
 	beta1 = 0.5f * ((gainDC - gainPI) + (gainDC + gainPI) * alpha);
-	rho   = (float)((sin((wT*0.5f) - (PI/4.0f))) / (sin((wT*0.5f) + (PI/4.0f))));
+	rho   = std::sin((wT*0.5f) - (mpt::numbers::pi_v<float>/4.0f)) / std::sin((wT*0.5f) + (mpt::numbers::pi_v<float>/4.0f));
 
 	quad  = 1.0f / (1.0f + rho*alpha);
 
@@ -280,7 +281,7 @@ void CMegaBass::Process(int * MixSoundBuffer, int * MixRearBuffer, int count, ui
 	if(nChannels >= 2)
 	{
 		X86_StereoDCRemoval(MixSoundBuffer, count, nDCRFlt_Y1lf, nDCRFlt_X1lf, nDCRFlt_Y1rf, nDCRFlt_X1rf);
-		if(nChannels > 2) X86_StereoDCRemoval(MixSoundBuffer, count, nDCRFlt_Y1lb, nDCRFlt_X1lb, nDCRFlt_Y1rb, nDCRFlt_X1rb);
+		if(nChannels > 2) X86_StereoDCRemoval(MixRearBuffer, count, nDCRFlt_Y1lb, nDCRFlt_X1lb, nDCRFlt_Y1rb, nDCRFlt_X1rb);
 		int *px = MixSoundBuffer;
 		int *py = MixRearBuffer;
 		int x1 = nXBassFlt_X1;
@@ -444,11 +445,11 @@ void BitCrush::Process(int * MixSoundBuffer, int * MixRearBuffer, int count, uin
 	{
 		return;
 	}
-	if(m_Settings.m_Bits > MixSampleIntTraits::mix_precision_bits())
+	if(m_Settings.m_Bits > MixSampleIntTraits::mix_precision_bits)
 	{
 		return;
 	}
-	unsigned int mask = ~((1u << (MixSampleIntTraits::mix_precision_bits() - m_Settings.m_Bits)) - 1u);
+	unsigned int mask = ~((1u << (MixSampleIntTraits::mix_precision_bits - m_Settings.m_Bits)) - 1u);
 	if(nChannels == 4)
 	{
 		for(int frame = 0; frame < count; ++frame)

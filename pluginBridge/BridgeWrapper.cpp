@@ -10,7 +10,7 @@
 
 #include "stdafx.h"
 
-#ifndef NO_VST
+#ifdef MPT_WITH_VST
 #include "BridgeWrapper.h"
 #include "../soundlib/plugins/PluginManager.h"
 #include "../mptrack/Mainfrm.h"
@@ -18,6 +18,8 @@
 #include "../mptrack/Vstplug.h"
 #include "../mptrack/ExceptionHandler.h"
 #include "../common/mptFileIO.h"
+#include "mpt/fs/fs.hpp"
+#include "mpt/io_file/fstream.hpp"
 #include "../common/mptStringBuffer.h"
 #include "../common/misc_util.h"
 
@@ -56,9 +58,10 @@ std::size_t GetPluginArchPointerSize(PluginArch arch)
 }
 
 
-ComponentPluginBridge::ComponentPluginBridge(PluginArch arch)
-    : ComponentBase(ComponentTypeBundled)
-    , arch(arch)
+ComponentPluginBridge::ComponentPluginBridge(PluginArch arch, Generation generation)
+	: ComponentBase(ComponentTypeBundled)
+	, arch(arch)
+	, generation(generation)
 {
 }
 
@@ -69,28 +72,28 @@ bool ComponentPluginBridge::DoInitialize()
 	switch(arch)
 	{
 	case PluginArch_x86:
-		if(mpt::Windows::HostCanRun(mpt::Windows::GetHostArchitecture(), mpt::Windows::Architecture::x86) == mpt::Windows::EmulationLevel::NA)
+		if(mpt::OS::Windows::HostCanRun(mpt::OS::Windows::GetHostArchitecture(), mpt::OS::Windows::Architecture::x86) == mpt::OS::Windows::EmulationLevel::NA)
 		{
 			return false;
 		}
 		archName = P_("x86");
 		break;
 	case PluginArch_amd64:
-		if(mpt::Windows::HostCanRun(mpt::Windows::GetHostArchitecture(), mpt::Windows::Architecture::amd64) == mpt::Windows::EmulationLevel::NA)
+		if(mpt::OS::Windows::HostCanRun(mpt::OS::Windows::GetHostArchitecture(), mpt::OS::Windows::Architecture::amd64) == mpt::OS::Windows::EmulationLevel::NA)
 		{
 			return false;
 		}
 		archName = P_("amd64");
 		break;
 	case PluginArch_arm:
-		if(mpt::Windows::HostCanRun(mpt::Windows::GetHostArchitecture(), mpt::Windows::Architecture::arm) == mpt::Windows::EmulationLevel::NA)
+		if(mpt::OS::Windows::HostCanRun(mpt::OS::Windows::GetHostArchitecture(), mpt::OS::Windows::Architecture::arm) == mpt::OS::Windows::EmulationLevel::NA)
 		{
 			return false;
 		}
 		archName = P_("arm");
 		break;
 	case PluginArch_arm64:
-		if(mpt::Windows::HostCanRun(mpt::Windows::GetHostArchitecture(), mpt::Windows::Architecture::arm64) == mpt::Windows::EmulationLevel::NA)
+		if(mpt::OS::Windows::HostCanRun(mpt::OS::Windows::GetHostArchitecture(), mpt::OS::Windows::Architecture::arm64) == mpt::OS::Windows::EmulationLevel::NA)
 		{
 			return false;
 		}
@@ -104,15 +107,15 @@ bool ComponentPluginBridge::DoInitialize()
 		return false;
 	}
 	exeName = mpt::PathString();
+	const mpt::PathString generationSuffix = (generation == Generation::Legacy) ? P_("Legacy") : P_("");
 	const mpt::PathString exeNames[] =
 	{
-		theApp.GetInstallPath() + P_("PluginBridge-") + archName + P_(".exe"),                          // Local
-		theApp.GetInstallBinPath() + archName + P_("\\") + P_("PluginBridge.exe"),                      // Multi-arch
-		theApp.GetInstallBinPath() + archName + P_("\\") + P_("PluginBridge-") + archName + P_(".exe")  // Multi-arch transitional
+		theApp.GetInstallBinPath() + archName + P_("\\") + P_("PluginBridge") + generationSuffix + P_("-") + archName + P_(".exe"),  // Multi-arch
+		theApp.GetInstallPath() + P_("PluginBridge") + generationSuffix + P_("-") + archName + P_(".exe")                            // Local
 	};
 	for(const auto &candidate : exeNames)
 	{
-		if(candidate.IsFile())
+		if(mpt::native_fs{}.is_file(candidate))
 		{
 			exeName = candidate;
 			break;
@@ -140,34 +143,21 @@ bool ComponentPluginBridge::DoInitialize()
 }
 
 
-MPT_REGISTERED_COMPONENT(ComponentPluginBridge_x86, "PluginBridge-x86")
-
-MPT_REGISTERED_COMPONENT(ComponentPluginBridge_amd64, "PluginBridge-amd64")
-
-#if defined(MPT_WITH_WINDOWS10)
-
-MPT_REGISTERED_COMPONENT(ComponentPluginBridge_arm, "PluginBridge-arm")
-
-MPT_REGISTERED_COMPONENT(ComponentPluginBridge_arm64, "PluginBridge-arm64")
-
-#endif  // MPT_WITH_WINDOWS10
-
-
 PluginArch BridgeWrapper::GetNativePluginBinaryType()
 {
 	PluginArch result = PluginArch_unknown;
-	switch(mpt::Windows::GetProcessArchitecture())
+	switch(mpt::OS::Windows::GetProcessArchitecture())
 	{
-	case mpt::Windows::Architecture::x86:
+	case mpt::OS::Windows::Architecture::x86:
 		result = PluginArch_x86;
 		break;
-	case mpt::Windows::Architecture::amd64:
+	case mpt::OS::Windows::Architecture::amd64:
 		result = PluginArch_amd64;
 		break;
-	case mpt::Windows::Architecture::arm:
+	case mpt::OS::Windows::Architecture::arm:
 		result = PluginArch_arm;
 		break;
-	case mpt::Windows::Architecture::arm64:
+	case mpt::OS::Windows::Architecture::arm64:
 		result = PluginArch_arm64;
 		break;
 	default:
@@ -182,7 +172,7 @@ PluginArch BridgeWrapper::GetNativePluginBinaryType()
 PluginArch BridgeWrapper::GetPluginBinaryType(const mpt::PathString &pluginPath)
 {
 	PluginArch type = PluginArch_unknown;
-	mpt::ifstream file(pluginPath, std::ios::in | std::ios::binary);
+	mpt::IO::ifstream file(pluginPath, std::ios::in | std::ios::binary);
 	if(file.is_open())
 	{
 		IMAGE_DOS_HEADER dosHeader;
@@ -190,7 +180,7 @@ PluginArch BridgeWrapper::GetPluginBinaryType(const mpt::PathString &pluginPath)
 		file.read(reinterpret_cast<char *>(&dosHeader), sizeof(dosHeader));
 		if(dosHeader.e_magic == IMAGE_DOS_SIGNATURE)
 		{
-			file.seekg(dosHeader.e_lfanew);
+			file.seekg(dosHeader.e_lfanew, std::ios::beg);
 			file.read(reinterpret_cast<char *>(&ntHeader), sizeof(ntHeader));
 
 			MPT_ASSERT((ntHeader.FileHeader.Characteristics & IMAGE_FILE_DLL) != 0);
@@ -226,10 +216,19 @@ uint64 BridgeWrapper::GetFileVersion(const WCHAR *exePath)
 	DWORD verSize = GetFileVersionInfoSizeW(exePath, &verHandle);
 	uint64 result = 0;
 	if(verSize == 0)
+	{
 		return result;
+	}
 
 	char *verData = new(std::nothrow) char[verSize];
+#if MPT_COMPILER_MSVC
+#pragma warning(push)
+#pragma warning(disable:6388) // 'verHandle' might not be '0'.
+#endif // MPT_COMPILER_MSVC
 	if(verData && GetFileVersionInfoW(exePath, verHandle, verSize, verData))
+#if MPT_COMPILER_MSVC
+#pragma warning(pop)
+#endif // MPT_COMPILER_MSVC
 	{
 		UINT size = 0;
 		void *lpBuffer = nullptr;
@@ -251,10 +250,11 @@ uint64 BridgeWrapper::GetFileVersion(const WCHAR *exePath)
 
 
 // Create a plugin bridge object
-AEffect *BridgeWrapper::Create(const VSTPluginLib &plugin)
+AEffect *BridgeWrapper::Create(const VSTPluginLib &plugin, bool forceLegacy)
 {
 	BridgeWrapper *wrapper = new(std::nothrow) BridgeWrapper();
 	BridgeWrapper *sharedInstance = nullptr;
+	const Generation wantedGeneration = (plugin.modernBridge && !forceLegacy) ? Generation::Modern : Generation::Legacy;
 
 	// Should we share instances?
 	if(plugin.shareBridgeInstance)
@@ -265,8 +265,12 @@ AEffect *BridgeWrapper::Create(const VSTPluginLib &plugin)
 		{
 			if(vstPlug->isBridged)
 			{
-				sharedInstance = FromIntPtr<BridgeWrapper>(vstPlug->Dispatch(effVendorSpecific, kVendorOpenMPT, kGetWrapperPointer, nullptr, 0.0f));
-				break;
+				BridgeWrapper *instance = FromIntPtr<BridgeWrapper>(vstPlug->Dispatch(effVendorSpecific, kVendorOpenMPT, kGetWrapperPointer, nullptr, 0.0f));
+				if(wantedGeneration == instance->m_Generation)
+				{
+					sharedInstance = instance;
+					break;
+				}
 			}
 			vstPlug = dynamic_cast<CVstPlugin *>(vstPlug->GetNextInstance());
 		}
@@ -274,7 +278,7 @@ AEffect *BridgeWrapper::Create(const VSTPluginLib &plugin)
 
 	try
 	{
-		if(wrapper != nullptr && wrapper->Init(plugin.dllPath, sharedInstance) && wrapper->m_queueMem.Good())
+		if(wrapper != nullptr && wrapper->Init(plugin.dllPath, wantedGeneration, sharedInstance) && wrapper->m_queueMem.Good())
 		{
 			return &wrapper->m_sharedMem->effect;
 		}
@@ -306,7 +310,7 @@ BridgeWrapper::~BridgeWrapper()
 
 
 // Initialize and launch bridge
-bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *sharedInstace)
+bool BridgeWrapper::Init(const mpt::PathString &pluginPath, Generation bridgeGeneration, BridgeWrapper *sharedInstace)
 {
 	static uint32 plugId = 0;
 	plugId++;
@@ -318,7 +322,7 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 	if(!m_queueMem.Create(mapName.c_str(), sizeof(SharedMemLayout))
 	   || !CreateSignals(mapName.c_str()))
 	{
-		throw BridgeException("Could not initialize plugin bridge memory.");
+		throw BridgeException(U_("Could not initialize plugin bridge memory."));
 	}
 	m_sharedMem = m_queueMem.Data<SharedMemLayout>();
 
@@ -331,21 +335,21 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 		switch(arch)
 		{
 		case PluginArch_x86:
-			if(available = IsComponentAvailable(pluginBridge_x86); !available)
-				availability = pluginBridge_x86->GetAvailability();
+			if(available = (bridgeGeneration == Generation::Modern) ? IsComponentAvailable(pluginBridge_x86) : IsComponentAvailable(pluginBridgeLegacy_x86); !available)
+				availability = (bridgeGeneration == Generation::Modern) ? pluginBridge_x86->GetAvailability() : pluginBridgeLegacy_x86->GetAvailability();
 			break;
 		case PluginArch_amd64:
-			if(available = IsComponentAvailable(pluginBridge_amd64); !available)
-				availability = pluginBridge_amd64->GetAvailability();
+			if(available = (bridgeGeneration == Generation::Modern) ? IsComponentAvailable(pluginBridge_amd64) : IsComponentAvailable(pluginBridgeLegacy_amd64); !available)
+				availability = (bridgeGeneration == Generation::Modern) ? pluginBridge_amd64->GetAvailability() : pluginBridgeLegacy_amd64->GetAvailability();
 			break;
 #if defined(MPT_WITH_WINDOWS10)
 		case PluginArch_arm:
-			if(available = IsComponentAvailable(pluginBridge_arm); !available)
-				availability = pluginBridge_arm->GetAvailability();
+			if(available = (bridgeGeneration == Generation::Modern) ? IsComponentAvailable(pluginBridge_arm) : IsComponentAvailable(pluginBridgeLegacy_arm); !available)
+				availability = (bridgeGeneration == Generation::Modern) ? pluginBridge_arm->GetAvailability() : pluginBridgeLegacy_arm->GetAvailability();
 			break;
 		case PluginArch_arm64:
-			if(available = IsComponentAvailable(pluginBridge_arm64); !available)
-				availability = pluginBridge_arm64->GetAvailability();
+			if(available = (bridgeGeneration == Generation::Modern) ? IsComponentAvailable(pluginBridge_arm64) : IsComponentAvailable(pluginBridgeLegacy_arm64); !available)
+				availability = (bridgeGeneration == Generation::Modern) ? pluginBridge_arm64->GetAvailability() : pluginBridgeLegacy_arm64->GetAvailability();
 			break;
 #endif  // MPT_WITH_WINDOWS10
 		default:
@@ -364,7 +368,7 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 				throw BridgeNotFoundException();
 				break;
 			case ComponentPluginBridge::AvailabilityWrongVersion:
-				throw BridgeException("The plugin bridge version does not match your OpenMPT version.");
+				throw BridgeException(U_("The plugin bridge version does not match your OpenMPT version."));
 				break;
 			default:
 				throw BridgeNotFoundException();
@@ -372,13 +376,22 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 			}
 		}
 		const ComponentPluginBridge *const pluginBridge =
-		    (arch == PluginArch_x86) ? static_cast<const ComponentPluginBridge *>(pluginBridge_x86.get()) :
-		    (arch == PluginArch_amd64) ? static_cast<const ComponentPluginBridge *>(pluginBridge_amd64.get()) :
+				(arch == PluginArch_x86 && bridgeGeneration == Generation::Modern) ? static_cast<const ComponentPluginBridge *>(pluginBridge_x86.get()) :
+				(arch == PluginArch_x86 && bridgeGeneration == Generation::Legacy) ? static_cast<const ComponentPluginBridge *>(pluginBridgeLegacy_x86.get()) :
+				(arch == PluginArch_amd64 && bridgeGeneration == Generation::Modern) ? static_cast<const ComponentPluginBridge *>(pluginBridge_amd64.get()) :
+				(arch == PluginArch_amd64 && bridgeGeneration == Generation::Legacy) ? static_cast<const ComponentPluginBridge *>(pluginBridgeLegacy_amd64.get()) :
 #if defined(MPT_WITH_WINDOWS10)
-		    (arch == PluginArch_arm) ? static_cast<const ComponentPluginBridge *>(pluginBridge_arm.get()) :
-		    (arch == PluginArch_arm64) ? static_cast<const ComponentPluginBridge *>(pluginBridge_arm64.get()) :
+				(arch == PluginArch_arm && bridgeGeneration == Generation::Modern) ? static_cast<const ComponentPluginBridge *>(pluginBridge_arm.get()) :
+				(arch == PluginArch_arm && bridgeGeneration == Generation::Legacy) ? static_cast<const ComponentPluginBridge *>(pluginBridgeLegacy_arm.get()) :
+				(arch == PluginArch_arm64 && bridgeGeneration == Generation::Modern) ? static_cast<const ComponentPluginBridge *>(pluginBridge_arm64.get()) :
+				(arch == PluginArch_arm64 && bridgeGeneration == Generation::Legacy) ? static_cast<const ComponentPluginBridge *>(pluginBridgeLegacy_arm64.get()) :
 #endif  // MPT_WITH_WINDOWS10
 		    nullptr;
+		if(!pluginBridge)
+		{
+			return false;
+		}
+		m_Generation = bridgeGeneration;
 		const mpt::PathString exeName = pluginBridge->GetFileName();
 
 		m_otherPtrSize = static_cast<int32>(GetPluginArchPointerSize(arch));
@@ -393,7 +406,7 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 
 		if(!CreateProcessW(exeName.ToWide().c_str(), cmdLine.data(), NULL, NULL, FALSE, 0, NULL, NULL, &info, &processInfo))
 		{
-			throw BridgeException("Failed to launch plugin bridge.");
+			throw BridgeException(U_("Failed to launch plugin bridge."));
 		}
 		CloseHandle(processInfo.hThread);
 		m_otherProcess = processInfo.hProcess;
@@ -408,7 +421,7 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 		if(!sharedInstace->SendToBridge(msg))
 		{
 			// Something went wrong, try a new instance
-			return Init(pluginPath, nullptr);
+			return Init(pluginPath, bridgeGeneration, nullptr);
 		}
 	}
 
@@ -427,7 +440,7 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 	const HANDLE objects[] = {m_sigBridgeReady, m_otherProcess};
 	if(WaitForMultipleObjects(mpt::saturate_cast<DWORD>(std::size(objects)), objects, FALSE, 10000) != WAIT_OBJECT_0)
 	{
-		throw BridgeException("Could not connect to plugin bridge, it probably crashed.");
+		throw BridgeException(U_("Could not connect to plugin bridge, it probably crashed."));
 	}
 	m_otherPluginID = m_sharedMem->bridgePluginID;
 
@@ -436,10 +449,10 @@ bool BridgeWrapper::Init(const mpt::PathString &pluginPath, BridgeWrapper *share
 
 	if(!SendToBridge(initMsg))
 	{
-		throw BridgeException("Could not initialize plugin bridge, it probably crashed.");
+		throw BridgeException(U_("Could not initialize plugin bridge, it probably crashed."));
 	} else if(initMsg.init.result != 1)
 	{
-		throw BridgeException(mpt::ToCharset(mpt::Charset::UTF8, initMsg.init.str).c_str());
+		throw BridgeException(mpt::ToUnicode(initMsg.init.str));
 	}
 
 	if(m_sharedMem->effect.flags & effFlagsCanReplacing)
@@ -549,24 +562,24 @@ void BridgeWrapper::DispatchToHost(DispatchMsg &msg)
 		}
 		[[fallthrough]];
 	case audioMasterIOChanged:
-	{
-		// If the song is playing, the rendering thread might be active at the moment,
-		// so we should keep the current processing memory alive until it is done for sure.
-		const CVstPlugin *plug = static_cast<CVstPlugin *>(m_sharedMem->effect.reservedForHost1);
-		const bool isPlaying = plug != nullptr && plug->IsResumed();
-		if(isPlaying)
 		{
-			m_oldProcessMem.CopyFrom(m_processMem);
+			// If the song is playing, the rendering thread might be active at the moment,
+			// so we should keep the current processing memory alive until it is done for sure.
+			const CVstPlugin *plug = static_cast<CVstPlugin *>(m_sharedMem->effect.reservedForHost1);
+			const bool isPlaying = plug != nullptr && plug->IsResumed();
+			if(isPlaying)
+			{
+				m_oldProcessMem.CopyFrom(m_processMem);
+			}
+			// Set up new processing file
+			m_processMem.Open(static_cast<wchar_t *>(ptr));
+			if(isPlaying)
+			{
+				msg.result = 1;
+				return;
+			}
 		}
-		// Set up new processing file
-		m_processMem.Open(static_cast<wchar_t *>(ptr));
-		if(isPlaying)
-		{
-			msg.result = 1;
-			return;
-		}
-	}
-	break;
+		break;
 
 	case audioMasterUpdateDisplay:
 		m_cachedProgNames.clear();
@@ -607,8 +620,22 @@ void BridgeWrapper::DispatchToHost(DispatchMsg &msg)
 		if(msg.result != 0)
 		{
 			std::vector<char> fileSelect;
+#if MPT_COMPILER_MSVC
+#pragma warning(push)
+#pragma warning(disable:6011) // Dereferencing NULL pointer 'ptr'.
+#endif
 			TranslateVstFileSelectToBridge(fileSelect, *static_cast<const VstFileSelect *>(ptr), m_otherPtrSize);
+#if MPT_COMPILER_MSVC
+#pragma warning(pop)
+#endif
+#if MPT_COMPILER_MSVC
+#pragma warning(push)
+#pragma warning(disable:6387) // 'origPtr' could be '0':  this does not adhere to the specification for the function 'memcpy'.
+#endif
 			std::memcpy(origPtr, fileSelect.data(), std::min(fileSelect.size(), static_cast<size_t>(msg.ptr)));
+#if MPT_COMPILER_MSVC
+#pragma warning(pop)
+#endif
 			// Directly free memory on host side, we don't need it anymore
 			CVstPlugin::MasterCallBack(&m_sharedMem->effect, audioMasterCloseFileSelector, msg.index, static_cast<intptr_t>(msg.value), ptr, msg.opt);
 		}
@@ -942,6 +969,8 @@ intptr_t BridgeWrapper::DispatchToPlugin(VstOpcodeToPlugin opcode, int32 index, 
 
 	const DispatchMsg &resultMsg = msg.dispatch;
 
+	// cppcheck false-positive
+	// cppcheck-suppress nullPointerRedundantCheck
 	const void *extraData = useAuxMem ? auxMem->memory.Data<const char>() : reinterpret_cast<const char *>(&resultMsg + 1);
 	// Post-fix some opcodes
 	switch(opcode)
@@ -1278,7 +1307,7 @@ LRESULT CALLBACK BridgeWrapper::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-#endif  // NO_VST
+#endif  // MPT_WITH_VST
 
 
 OPENMPT_NAMESPACE_END

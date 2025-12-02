@@ -10,9 +10,7 @@
 
 #pragma once
 
-#include "BuildSettings.h"
-
-#ifndef NO_PLUGINS
+#include "openmpt/all/BuildSettings.hpp"
 
 #include "../PlugInterface.h"
 
@@ -36,25 +34,27 @@ protected:
 		kChorusNumParameters
 	};
 
-	float m_param[kChorusNumParameters];
+	std::array<float, kChorusNumParameters> m_param;
 
 	// Calculated parameters
 	float m_waveShapeMin, m_waveShapeMax, m_waveShapeVal;
 	float m_depthDelay;
 	float m_frequency;
 	int32 m_delayOffset;
+	const bool m_isFlanger = false;
 
 	// State
-	std::vector<float> m_buffer;
-	int32 m_bufPos, m_bufSize;
+	std::vector<float> m_bufferL, m_bufferR;  // Only m_bufferL is used in case of !m_isFlanger
+	std::array<float, 3> m_DryBufferL, m_DryBufferR;
+	int32 m_bufPos = 0, m_bufSize = 0;
 
-	int32 m_delayL1, m_delayL2, m_delayR1, m_delayR2;
+	int32 m_delayL = 0, m_delayR = 0;
+	int32 m_dryWritePos = 0;
 
 public:
-	static IMixPlugin* Create(VSTPluginLib &factory, CSoundFile &sndFile, SNDMIXPLUGIN *mixStruct);
-	Chorus(VSTPluginLib &factory, CSoundFile &sndFile, SNDMIXPLUGIN *mixStruct);
+	static IMixPlugin* Create(VSTPluginLib &factory, CSoundFile &sndFile, SNDMIXPLUGIN &mixStruct);
+	Chorus(VSTPluginLib &factory, CSoundFile &sndFile, SNDMIXPLUGIN &mixStruct, bool stereoBuffers = false);
 
-	void Release() override { delete this; }
 	int32 GetUID() const override { return 0xEFE6629C; }
 	int32 GetVersion() const override { return 0; }
 	void Idle() override { }
@@ -70,7 +70,7 @@ public:
 
 	PlugParamIndex GetNumParameters() const override { return kChorusNumParameters; }
 	PlugParamValue GetParameter(PlugParamIndex index) override;
-	void SetParameter(PlugParamIndex index, PlugParamValue value) override;
+	void SetParameter(PlugParamIndex index, PlugParamValue value, PlayState * = nullptr, CHANNELINDEX = CHANNELINDEX_INVALID) override;
 
 	void Resume() override;
 	void Suspend() override { m_isResumed = false; }
@@ -103,7 +103,7 @@ protected:
 	int32 GetBufferIntOffset(int32 fpOffset) const;
 
 	virtual float WetDryMix() const { return m_param[kChorusWetDryMix]; }
-	virtual bool IsTriangle() const { return m_param[kChorusWaveShape] < 1; }
+	virtual bool IsSquare() const { return m_param[kChorusWaveShape] < 1; }
 	virtual float Depth() const { return m_param[kChorusDepth]; }
 	virtual float Feedback() const { return -99.0f + m_param[kChorusFeedback] * 198.0f; }
 	virtual float Delay() const { return m_param[kChorusDelay] * 20.0f; }
@@ -115,5 +115,3 @@ protected:
 } // namespace DMO
 
 OPENMPT_NAMESPACE_END
-
-#endif // !NO_PLUGINS

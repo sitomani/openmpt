@@ -10,9 +10,13 @@
 
 #include "stdafx.h"
 #include "HTTP.h"
-#include "../common/mptIO.h"
-#include "../common/mptOSError.h"
+#include "mpt/system_error/system_error.hpp"
 #include <WinInet.h>
+#include "mpt/format/join.hpp"
+#include "mpt/io/io.hpp"
+#include "mpt/io/io_stdstream.hpp"
+#include "mpt/parse/parse.hpp"
+#include "mpt/string/utility.hpp"
 
 
 OPENMPT_NAMESPACE_BEGIN
@@ -36,10 +40,6 @@ URI ParseURI(mpt::ustring str)
 	{
 		str = str.substr(2);
 		std::size_t authority_delim_pos = str.find_first_of(U_("/?#"));
-		if(authority_delim_pos == mpt::ustring::npos)
-		{
-			throw bad_uri("no path");
-		}
 		mpt::ustring authority = str.substr(0, authority_delim_pos);
 		std::size_t userinfo_delim_pos = authority.find(U_("@"));
 		if(userinfo_delim_pos != mpt::ustring::npos)
@@ -74,22 +74,33 @@ URI ParseURI(mpt::ustring str)
 				uri.port = authority.substr(port_delim_pos + 1);
 			}
 		}
-		str = str.substr(authority_delim_pos);
+		if(authority_delim_pos != mpt::ustring::npos)
+		{
+			str = str.substr(authority_delim_pos);
+		} else
+		{
+			str = U_("");
+		}
 	}
 	std::size_t path_delim_pos = str.find_first_of(U_("?#"));
 	uri.path = str.substr(0, path_delim_pos);
-	if(uri.path.empty())
-	{
-		throw bad_uri("empty path");
-	}
-	str = str.substr(path_delim_pos + 1);
 	if(path_delim_pos != mpt::ustring::npos)
 	{
-		std::size_t fragment_delim_pos = str.find(U_("#"));
-		uri.query = str.substr(0, fragment_delim_pos);
-		if(fragment_delim_pos != mpt::ustring::npos)
+		str = str.substr(path_delim_pos);
+		std::size_t query_delim_pos = str.find(U_("#"));
+		if(query_delim_pos != mpt::ustring::npos)
 		{
-			uri.fragment = str.substr(fragment_delim_pos + 1);
+			if(query_delim_pos > 0)
+			{
+				uri.query = str.substr(1, query_delim_pos - 1);
+				uri.fragment = str.substr(query_delim_pos + 1);
+			} else
+			{
+				uri.fragment = str.substr(query_delim_pos + 1);
+			}
+		} else
+		{
+			uri.query = str.substr(1);
 		}
 	}
 	return uri;
@@ -101,7 +112,7 @@ namespace HTTP
 
 
 exception::exception(const mpt::ustring &m)
-	: std::runtime_error(std::string("HTTP error: ") + mpt::ToCharset(mpt::Charset::ASCII, m))
+	: std::runtime_error(std::string("HTTP error: ") + mpt::transcode<std::string>(mpt::exception_encoding, m))
 {
 	message = m;
 }
@@ -117,7 +128,7 @@ class LastErrorException
 {
 public:
 	LastErrorException()
-		: exception(mpt::Windows::GetErrorMessage(GetLastError(), GetModuleHandle(TEXT("wininet.dll"))))
+		: exception(mpt::windows::GetErrorMessage(GetLastError(), GetModuleHandle(TEXT("wininet.dll"))))
 	{
 	}
 };
@@ -315,7 +326,7 @@ Result Request::operator()(InternetSession &internet) const
 				arguments.push_back(MPT_UFORMAT("{}")(key));
 			}
 		}
-		queryPath += U_("?") + mpt::String::Combine(arguments, U_("&"));
+		queryPath += U_("?") + mpt::join_format(arguments, U_("&"));
 	}
 	Handle request = NativeHandle(HttpOpenRequest(
 		NativeHandle(connection),
@@ -340,13 +351,13 @@ Result Request::operator()(InternetSession &internet) const
 		std::string headersString;
 		if(!dataMimeType.empty())
 		{
-			headersString += MPT_FORMAT("Content-type: {}\r\n")(dataMimeType);
+			headersString += MPT_AFORMAT("Content-type: {}\r\n")(dataMimeType);
 		}
 		if(!headers.empty())
 		{
 			for(const auto &[key, value] : headers)
 			{
-				headersString += MPT_FORMAT("{}: {}\r\n")(key, value);
+				headersString += MPT_AFORMAT("{}: {}\r\n")(key, value);
 			}
 		}
 		if(HttpSendRequest(
@@ -441,7 +452,7 @@ Request &Request::SetURI(const URI &uri)
 	host = uri.host;
 	if(!uri.port.empty())
 	{
-		port = HTTP::Port(ConvertStrTo<uint16>(uri.port));
+		port = HTTP::Port(mpt::parse<uint16>(uri.port));
 	} else
 	{
 		port = HTTP::Port::Default;
@@ -456,7 +467,7 @@ Request &Request::SetURI(const URI &uri)
 		path = uri.path;
 	}
 	query.clear();
-	auto keyvals = mpt::String::Split<mpt::ustring>(uri.query, U_("&"));
+	auto keyvals = mpt::split(uri.query, U_("&"));
 	for(const auto &keyval : keyvals)
 	{
 		std::size_t delim_pos = keyval.find(U_("="));
@@ -471,6 +482,27 @@ Request &Request::SetURI(const URI &uri)
 	// ignore fragment
 	return *this;
 }
+
+
+#if MPT_WIN_BEFORE(MPT_WIN_VISTA)
+Request &Request::InsecureTLSDowngradeWindowsXP()
+{
+	if(mpt::OS::Windows::IsOriginal() && mpt::osinfo::windows::Version::Current().IsBefore(mpt::osinfo::windows::Version::WinVista))
+	{
+		// TLS 1.0 is not enabled by default until IE7. Since WinInet won't let us override this setting, we cannot assume that HTTPS
+		// is going to work on older systems. Besides... Windows XP is already enough of a security risk by itself. :P
+		if(protocol == Protocol::HTTPS)
+		{
+			protocol = Protocol::HTTP;
+		}
+		if(port == Port::HTTPS)
+		{
+			port = Port::HTTP;
+		}
+	}
+	return *this;
+}
+#endif // < MPT_WIN_VISTA
 
 
 Result SimpleGet(InternetSession &internet, Protocol protocol, const mpt::ustring &host, const mpt::ustring &path)

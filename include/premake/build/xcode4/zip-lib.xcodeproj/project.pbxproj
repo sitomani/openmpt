@@ -204,6 +204,19 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		C0C44FC2324F6834E1508E02 /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXGroup section */
 		5E8C725002DF100215175890 /* include */ = {
 			isa = PBXGroup;
@@ -334,6 +347,7 @@
 				8CCCB276BB73066814B460B6 /* Resources */,
 				F679CBCD25201FBF7E617A0D /* Sources */,
 				1CE531D64B8B85C8A4CCE016 /* Frameworks */,
+				C0C44FC2324F6834E1508E02 /* Embed Libraries */,
 			);
 			buildRules = (
 			);
@@ -480,22 +494,24 @@
 				GCC_OPTIMIZATION_LEVEL = fast;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					PREMAKE_COMPRESSION,
-					CURL_STATICLIB,
 					PREMAKE_CURL,
+					CURL_STATICLIB,
+					LUA_STATICLIB,
 					NDEBUG,
 					N_FSEEKO,
 					HAVE_SSIZE_T_LIBZIP,
+					HAVE_CONFIG_H,
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				OBJROOT = "obj/Release/zip-lib";
 				ONLY_ACTIVE_ARCH = NO;
-				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
 				SYMROOT = bin/Release;
 				USER_HEADER_SEARCH_PATHS = (
 					../../contrib/libzip/include,
 				);
+				WARNING_CFLAGS = "-w";
 			};
 			name = Release;
 		};
@@ -510,22 +526,24 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					PREMAKE_COMPRESSION,
-					CURL_STATICLIB,
 					PREMAKE_CURL,
+					CURL_STATICLIB,
+					LUA_STATICLIB,
 					_DEBUG,
 					N_FSEEKO,
 					HAVE_SSIZE_T_LIBZIP,
+					HAVE_CONFIG_H,
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				OBJROOT = "obj/Debug/zip-lib";
 				ONLY_ACTIVE_ARCH = YES;
-				STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;
 				SYMROOT = bin/Debug;
 				USER_HEADER_SEARCH_PATHS = (
 					../../contrib/libzip/include,
 				);
+				WARNING_CFLAGS = "-w";
 			};
 			name = Debug;
 		};

@@ -8,8 +8,6 @@
 #include "ASIOConfig.hpp"
 #include "ASIOCore.hpp"
 
-#include "ASIOConfig.hpp"
-
 #if __has_include(<iasiodrv.h>)
 #define ASIO_ABI_VERIFIED 1
 #include <iasiodrv.h>
@@ -24,17 +22,19 @@ namespace ASIO {
 
 
 
+inline namespace ASIO_VERSION_NAMESPACE {
+
+
+
 #if ASIO_ABI_VERIFIED
+
+
 
 inline namespace VerifyABI {
 
 
 
-inline namespace ASIO_VERSION_NAMESPACE {
-
-
-
-static_assert(sizeof(ASIO::SysHandle) == sizeof(void*));
+static_assert(sizeof(ASIO::SysHandle) == sizeof(void *));
 static_assert(sizeof(ASIO::Byte) == sizeof(char));
 static_assert(sizeof(ASIO::Long) == sizeof(long));
 static_assert(sizeof(ASIO::ULong) == sizeof(unsigned long));
@@ -72,7 +72,7 @@ static_assert(sizeof(ASIO::IoFormat) == sizeof(::ASIOIoFormat));
 static_assert(sizeof(ASIO::InternalBufferInfo) == sizeof(::ASIOInternalBufferInfo));
 static_assert(sizeof(ASIO::ISystemDriver) == sizeof(::IASIO));
 
-static_assert(alignof(ASIO::SysHandle) == alignof(void*));
+static_assert(alignof(ASIO::SysHandle) == alignof(void *));
 static_assert(alignof(ASIO::Byte) == alignof(char));
 static_assert(alignof(ASIO::Long) == alignof(long));
 static_assert(alignof(ASIO::ULong) == alignof(unsigned long));
@@ -112,13 +112,15 @@ static_assert(alignof(ASIO::ISystemDriver) == alignof(::IASIO));
 
 
 
-} // namespace ASIO_VERSION_NAMESPACE
-
-
-
 } // namespace VerifyABI
 
+
+
 #endif // ASIO_ABI_VERIFIED
+
+
+
+} // namespace ASIO_VERSION_NAMESPACE
 
 
 

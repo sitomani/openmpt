@@ -11,8 +11,16 @@
 #include "stdafx.h"
 #include "mptWine.h"
 
-#include "../common/mptOS.h"
+#include "mpt/fs/fs.hpp"
+#include "mpt/io_file/fileref.hpp"
+#include "mpt/io_file/fstream.hpp"
+#include "mpt/parse/parse.hpp"
+#include "mpt/path/native_path.hpp"
+#include "mpt/string/utility.hpp"
+
+#include "mptOS.h"
 #include "../common/mptFileIO.h"
+#include "../common/mptFileTemporary.h"
 
 #include <deque>
 #include <map>
@@ -25,7 +33,7 @@
 OPENMPT_NAMESPACE_BEGIN
 
 
-#if defined(MODPLUG_TRACKER) && MPT_OS_WINDOWS
+#if MPT_OS_WINDOWS
 
 
 namespace mpt
@@ -35,12 +43,12 @@ namespace Wine
 
 
 
-Context::Context(mpt::Wine::VersionContext versionContext)
+Context::Context(mpt::OS::Wine::VersionContext versionContext)
 	: m_VersionContext(versionContext)
 	, wine_get_dos_file_name(nullptr)
 	, wine_get_unix_file_name(nullptr)
 {
-	if(!mpt::Windows::IsWine())
+	if(!mpt::OS::Windows::IsWine())
 	{
 		throw mpt::Wine::Exception("Wine not detected.");
 	}
@@ -48,16 +56,16 @@ Context::Context(mpt::Wine::VersionContext versionContext)
 	{
 		throw mpt::Wine::Exception("Unknown Wine version detected.");
 	}
-	m_Kernel32 = mpt::Library(mpt::LibraryPath::FullPath(P_("kernel32.dll")));
-	if(!m_Kernel32.IsValid())
+	m_Kernel32 = std::make_shared<std::optional<mpt::library>>(mpt::library::load_optional({ mpt::library::path_search::system, mpt::library::path_prefix::none, MPT_NATIVE_PATH("kernel32.dll"), mpt::library::path_suffix::none }));
+	if(!m_Kernel32->has_value())
 	{
 		throw mpt::Wine::Exception("Could not load Wine kernel32.dll.");
 	}
-	if(!m_Kernel32.Bind(wine_get_unix_file_name, "wine_get_unix_file_name"))
+	if(!(*m_Kernel32)->bind_function(wine_get_unix_file_name, "wine_get_unix_file_name"))
 	{
 		throw mpt::Wine::Exception("Could not bind Wine kernel32.dll:wine_get_unix_file_name.");
 	}
-	if(!m_Kernel32.Bind(wine_get_dos_file_name, "wine_get_dos_file_name"))
+	if(!(*m_Kernel32)->bind_function(wine_get_dos_file_name, "wine_get_dos_file_name"))
 	{
 		throw mpt::Wine::Exception("Could not bind Wine kernel32.dll:wine_get_dos_file_name.");
 	}
@@ -74,7 +82,7 @@ Context::Context(mpt::Wine::VersionContext versionContext)
 			{
 				throw mpt::Wine::Exception("Wine 'uname -m' failed.");
 			}
-			out = mpt::String::Trim(out, std::string("\r\n"));
+			out = mpt::trim(out, std::string("\r\n"));
 			m_Uname_m = out;
 		} catch(const std::exception &)
 		{
@@ -144,6 +152,10 @@ std::string Context::PathToPosix(mpt::PathString windowsPath)
 	result = tmp;
 	HeapFree(GetProcessHeap(), 0, tmp);
 	tmp = nullptr;
+	if(mpt::ends_with(windowsPath.AsNative(), P_("\\").AsNative()) && !mpt::ends_with(result, "/"))
+	{
+		result.push_back('/');
+	}
 	return result;
 }
 
@@ -167,6 +179,10 @@ mpt::PathString Context::PathToWindows(std::string hostPath)
 	result = mpt::PathString::FromWide(tmp);
 	HeapFree(GetProcessHeap(), 0, tmp);
 	tmp = nullptr;
+	if(!mpt::ends_with(hostPath, "/") && !mpt::ends_with(result.AsNative(), P_("\\").AsNative()))
+	{
+		result.append(P_("\\"));
+	}
 	return result;
 }
 
@@ -189,8 +205,12 @@ std::string Context::PathToPosixCanonical(mpt::PathString windowsPath)
 	{
 		throw mpt::Wine::Exception("Wine readlink failed.");
 	}
-	std::string trimmedOutput = mpt::String::Trim(output, std::string("\r\n"));
+	std::string trimmedOutput = mpt::trim(output, std::string("\r\n"));
 	result = trimmedOutput;
+	if(mpt::ends_with(windowsPath.AsNative(), P_("\\").AsNative()) && !mpt::ends_with(result, "/"))
+	{
+		result.push_back('/');
+	}
 	return result;
 }
 
@@ -212,14 +232,14 @@ std::string Context::EscapePosixShell(std::string line)
 {
 	const char escape_chars [] = { '|', '&', ';', '<', '>', '(', ')', '$', '`', '"', '\'', ' ', '\t' };
 	const char maybe_escape_chars [] = { '*', '?', '[', '#', '~', '=', '%' };
-	line = mpt::String::Replace(line, "\\", "\\\\");
+	line = mpt::replace(line, std::string("\\"), std::string("\\\\"));
 	for(char c : escape_chars)
 	{
-		line = mpt::String::Replace(line, std::string(1, c), "\\" + std::string(1, c));
+		line = mpt::replace(line, std::string(1, c), std::string("\\") + std::string(1, c));
 	}
 	for(char c : maybe_escape_chars)
 	{
-		line = mpt::String::Replace(line, std::string(1, c), "\\" + std::string(1, c));
+		line = mpt::replace(line, std::string(1, c), std::string("\\") + std::string(1, c));
 	}
 	return line;
 }
@@ -242,7 +262,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 
 	progress(userdata);
 
-	mpt::TempDirGuard dirWindowsTemp(mpt::CreateTempFileName());
+	mpt::TempDirGuard dirWindowsTemp{};
 	if(dirWindowsTemp.GetDirname().empty())
 	{
 		throw mpt::Wine::Exception("Creating temporary directoy failed.");
@@ -260,7 +280,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	// write the script to disk
 	mpt::PathString scriptFilenameWindows = dirWindows + P_("script.sh");
 	{
-		mpt::ofstream tempfile(scriptFilenameWindows, std::ios::binary);
+		mpt::IO::ofstream tempfile(scriptFilenameWindows, std::ios::binary);
 		tempfile << script;
 		tempfile.flush();
 		if(!tempfile)
@@ -280,7 +300,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	// create a wrapper that will call the script and gather result.
 	mpt::PathString wrapperstarterFilenameWindows = dirWindows + P_("wrapperstarter.sh");
 	{
-		mpt::ofstream tempfile(wrapperstarterFilenameWindows, std::ios::binary);
+		mpt::IO::ofstream tempfile(wrapperstarterFilenameWindows, std::ios::binary);
 		std::string wrapperstarterscript;
 		wrapperstarterscript += std::string() + "#!/usr/bin/env sh" "\n";
 		wrapperstarterscript += std::string() + "exec /usr/bin/env sh " + dirPosixEscape + "wrapper.sh" "\n";
@@ -294,7 +314,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	mpt::PathString wrapperFilenameWindows = dirWindows + P_("wrapper.sh");
 	std::string cleanupscript;
 	{
-		mpt::ofstream tempfile(wrapperFilenameWindows, std::ios::binary);
+		mpt::IO::ofstream tempfile(wrapperFilenameWindows, std::ios::binary);
 		std::string wrapperscript;
 		if(!flags[ExecFlagSilent])
 		{
@@ -351,7 +371,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	::CreateDirectory((dirWindows + P_("filetree")).AsNative().c_str(), nullptr);
 	for(const auto &file : filetree)
 	{
-		std::vector<mpt::ustring> path = mpt::String::Split<mpt::ustring>(mpt::ToUnicode(mpt::Charset::UTF8, file.first), U_("/"));
+		std::vector<mpt::ustring> path = mpt::split(mpt::ToUnicode(mpt::Charset::UTF8, file.first), U_("/"));
 		mpt::PathString combinedPath = dirWindows + P_("filetree") + P_("\\");
 		if(path.size() > 1)
 		{
@@ -362,7 +382,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 					continue;
 				}
 				combinedPath += mpt::PathString::FromUnicode(path[singlepath]);
-				if(!combinedPath.IsDirectory())
+				if(!mpt::native_fs{}.is_directory(combinedPath))
 				{
 					if(::CreateDirectory(combinedPath.AsNative().c_str(), nullptr) == 0)
 					{
@@ -374,7 +394,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 		}
 		try
 		{
-			mpt::LazyFileRef out(dirWindows + P_("filetree") + P_("\\") + mpt::PathString::FromUTF8(mpt::String::Replace(file.first, "/", "\\")));
+			mpt::IO::FileRef out(dirWindows + P_("filetree") + P_("\\") + mpt::PathString::FromUTF8(mpt::replace(file.first, std::string("/"), std::string("\\"))));
 			out = file.second;
 		} catch(std::exception &)
 		{
@@ -387,7 +407,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	// create a wrapper that will find a suitable terminal and run the wrapper script in the terminal window.
 	mpt::PathString terminalWrapperFilenameWindows = dirWindows + P_("terminal.sh");
 	{
-		mpt::ofstream tempfile(terminalWrapperFilenameWindows, std::ios::binary);
+		mpt::IO::ofstream tempfile(terminalWrapperFilenameWindows, std::ios::binary);
 		// NOTE:
 		// Modern terminals detach themselves from the invoking shell if another instance is already present.
 		// This means we cannot rely on terminal invocation being syncronous.
@@ -442,12 +462,10 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 
 		std::wstring unixcommandW = mpt::ToWide(mpt::Charset::UTF8, unixcommand);
 		std::wstring titleW = mpt::ToWide(mpt::Charset::UTF8, title);
-		STARTUPINFOW startupInfo;
-		MemsetZero(startupInfo);
+		STARTUPINFOW startupInfo = {};
 		startupInfo.lpTitle = titleW.data();
 		startupInfo.cb = sizeof(startupInfo);
-		PROCESS_INFORMATION processInformation;
-		MemsetZero(processInformation);
+		PROCESS_INFORMATION processInformation = {};
 
 		progress(userdata);
 
@@ -512,12 +530,10 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 
 		std::wstring unixcommandW = mpt::ToWide(mpt::Charset::UTF8, unixcommand);
 		std::wstring titleW = mpt::ToWide(mpt::Charset::UTF8, title);
-		STARTUPINFOW startupInfo;
-		MemsetZero(startupInfo);
+		STARTUPINFOW startupInfo = {};
 		startupInfo.lpTitle = titleW.data();
 		startupInfo.cb = sizeof(startupInfo);
-		PROCESS_INFORMATION processInformation;
-		MemsetZero(processInformation);
+		PROCESS_INFORMATION processInformation = {};
 
 		progress(userdata);
 
@@ -577,7 +593,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 		return result;
 	}
 
-	while(!(dirWindows + P_("done")).IsFile())
+	while(!mpt::native_fs{}.is_file(dirWindows + P_("done")))
 	{ // wait
 		if(progressCancel(userdata) != ExecuteProgressContinueWaiting)
 		{
@@ -589,7 +605,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 
 	int exitCode = 0;
 	{
-		mpt::ifstream exitFile(dirWindows + P_("exit"), std::ios::binary);
+		mpt::IO::ifstream exitFile(dirWindows + P_("exit"), std::ios::binary);
 		if(!exitFile)
 		{
 			throw mpt::Wine::Exception("Script .exit file not found.");
@@ -600,7 +616,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 		{
 			throw mpt::Wine::Exception("Script .exit file empty.");
 		}
-		exitCode = ConvertStrTo<int>(exitString);
+		exitCode = mpt::parse<int>(exitString);
 	}
 
 	progress(userdata);
@@ -608,14 +624,14 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	std::string outputString;
 	if(!flags[ExecFlagInteractive])
 	{
-		mpt::ifstream outputFile(dirWindows + P_("out"), std::ios::binary);
+		mpt::IO::ifstream outputFile(dirWindows + P_("out"), std::ios::binary);
 		if(outputFile)
 		{
 			outputFile.seekg(0, std::ios::end);
-			std::streampos outputFileSize = outputFile.tellg();
+			std::streamoff outputFileSize = static_cast<std::streamoff>(outputFile.tellg());
 			outputFile.seekg(0, std::ios::beg);
-			std::vector<char> outputFileBuf(mpt::saturate_cast<std::size_t>(static_cast<std::streamoff>(outputFileSize)));
-			outputFile.read(&outputFileBuf[0], outputFileBuf.size());
+			std::vector<char> outputFileBuf(mpt::saturate_cast<std::size_t>(outputFileSize));
+			outputFile.read(outputFileBuf.data(), outputFileBuf.size());
 			outputString = mpt::buffer_cast<std::string>(outputFileBuf);
 		}
 	}
@@ -625,14 +641,14 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 	std::string errorString;
 	if(flags[ExecFlagSplitOutput])
 	{
-		mpt::ifstream errorFile(dirWindows + P_("err"), std::ios::binary);
+		mpt::IO::ifstream errorFile(dirWindows + P_("err"), std::ios::binary);
 		if(errorFile)
 		{
 			errorFile.seekg(0, std::ios::end);
-			std::streampos errorFileSize = errorFile.tellg();
+			std::streamoff errorFileSize = static_cast<std::streamoff>(errorFile.tellg());
 			errorFile.seekg(0, std::ios::beg);
-			std::vector<char> errorFileBuf(mpt::saturate_cast<std::size_t>(static_cast<std::streamoff>(errorFileSize)));
-			errorFile.read(&errorFileBuf[0], errorFileBuf.size());
+			std::vector<char> errorFileBuf(mpt::saturate_cast<std::size_t>(errorFileSize));
+			errorFile.read(errorFileBuf.data(), errorFileBuf.size());
 			errorString = mpt::buffer_cast<std::string>(errorFileBuf);
 		}
 	}
@@ -646,16 +662,15 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 
 	std::deque<mpt::PathString> paths;
 	paths.push_back(dirWindows + P_("filetree"));
-	mpt::PathString basePath = (dirWindows + P_("filetree")).EnsureTrailingSlash();
+	mpt::PathString basePath = (dirWindows + P_("filetree")).WithTrailingSlash();
 	while(!paths.empty())
 	{
 		mpt::PathString path = paths.front();
 		paths.pop_front();
-		path.EnsureTrailingSlash();
+		path = path.WithTrailingSlash();
 		HANDLE hFind = NULL;
-		WIN32_FIND_DATA wfd;
-		MemsetZero(wfd);
-		hFind = FindFirstFile((path + P_("*.*")).AsNative().c_str(), &wfd);
+		WIN32_FIND_DATA wfd = {};
+		hFind = FindFirstFile(mpt::support_long_path((path + P_("*.*")).AsNative()).c_str(), &wfd);
 		if(hFind != NULL && hFind != INVALID_HANDLE_VALUE)
 		{
 			do
@@ -665,17 +680,16 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 				{
 					filename = path + filename;
 					filetree[filename.ToUTF8()] = std::vector<char>();
-					if(filename.IsDirectory())
+					if(mpt::native_fs{}.is_directory(filename))
 					{
 						paths.push_back(filename);
-					} else if(filename.IsFile())
+					} else if(mpt::native_fs{}.is_file(filename))
 					{
 						try
 						{
-							mpt::LazyFileRef f(filename);
-							std::vector<char> buf = f;
+							mpt::IO::FileRef f(filename);
 							mpt::PathString treeFilename = mpt::PathString::FromNative(filename.AsNative().substr(basePath.AsNative().length()));
-							result.filetree[treeFilename.ToUTF8()] = buf;
+							result.filetree[treeFilename.ToUTF8()] = f;
 						} catch (std::exception &)
 						{
 							// nothing?!
@@ -687,7 +701,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 		}
 	}
 
-	mpt::DeleteWholeDirectoryTree(dirWindows);
+	mpt::native_fs{}.delete_tree(dirWindows);
 
 	return result;
 
@@ -730,7 +744,7 @@ std::string Context::GetPosixEnvVar(std::string var, std::string def)
 	{
 		throw mpt::Wine::Exception("Wine echo $var failed.");
 	}
-	std::string result = mpt::String::RTrim(output, std::string("\r\n"));
+	std::string result = mpt::trim_right(output, std::string("\r\n"));
 	if(result.empty())
 	{
 		result = def;
@@ -743,13 +757,13 @@ std::string Context::GetPosixEnvVar(std::string var, std::string def)
 } // namespace mpt
 
 
-#else // !(MODPLUG_TRACKER && MPT_OS_WINDOWS)
+#else // !MPT_OS_WINDOWS
 
 
 MPT_MSVC_WORKAROUND_LNK4221(mptWine)
 
 
-#endif // MODPLUG_TRACKER && MPT_OS_WINDOWS
+#endif // MPT_OS_WINDOWS
 
 
 OPENMPT_NAMESPACE_END

@@ -11,25 +11,45 @@
 
 #pragma once
 
-#include "BuildSettings.h"
+#include "openmpt/all/BuildSettings.hpp"
 
 
 #ifdef ENABLE_TESTS
 #ifdef MODPLUG_TRACKER
 
 
+#include "mpt/test/test.hpp"
+
+
 OPENMPT_NAMESPACE_BEGIN
 
-	
+
 namespace Test {
 
 
 #if MPT_COMPILER_MSVC
 // With MSVC, break directly using __debugbreak intrinsic instead of calling DebugBreak which breaks one stackframe deeper than we want
 #define MyDebugBreak() __debugbreak()
+#elif MPT_COMPILER_CLANG
+#define MyDebugBreak() __builtin_debugtrap()
+#elif MPT_COMPILER_GCC && (MPT_ARCH_X86 || MPT_ARCH_AMD64)
+#define MyDebugBreak() __asm__ __volatile__("int 3");
 #else
 #define MyDebugBreak() DebugBreak()
 #endif
+
+
+class mpt_test_reporter
+	: public mpt::test::silent_reporter
+{
+public:
+	mpt_test_reporter() = default;
+	~mpt_test_reporter() override = default;
+public:
+	inline void immediate_breakpoint() override {
+		MyDebugBreak();
+	}
+};
 
 
 // Verify that given parameters are 'equal'. Break directly into the debugger if not.
