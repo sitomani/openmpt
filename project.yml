@@ -1,0 +1,100 @@
+name: libopenmpt
+
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+    CLANG_CXX_LANGUAGE_STANDARD: "c++20"
+    CLANG_CXX_LIBRARY: "libc++"
+
+targets:
+  libopenmpt:
+    type: library.static
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_NAME: libopenmpt
+        DEFINES_MODULE: NO
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "$(inherited)"
+          - LIBOPENMPT_BUILD
+          - MPT_WITH_ZLIB
+          - MPT_WITH_OGG
+          - MPT_WITH_MPG123
+          - MPT_WITH_VORBIS
+          - MPT_WITH_VORBISFILE
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)"
+          - "$(SRCROOT)/common"
+          - "$(SRCROOT)/src"
+          - "$(SRCROOT)/include/ogg/include"
+          - "$(SRCROOT)/include/vorbis/include"
+          - "$(SRCROOT)/include/vorbis/lib"
+          - "$(SRCROOT)/include/vorbis"
+          - "$(SRCROOT)/include/mpg123/ports/generic"
+          - "$(SRCROOT)/include/mpg123/src/include"
+        USER_HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lz"
+
+    sources:
+      - path: common
+        includes:
+          - "*.cpp"
+      - path: sounddsp
+        includes:
+          - "*.cpp"
+      - path: soundlib
+        includes:
+          - "*.cpp"
+      - path: soundlib/plugins
+        includes:
+          - "*.cpp"
+      - path: soundlib/plugins/dmo
+        includes:
+          - "*.cpp"
+      - path: libopenmpt
+        includes:
+          - "*.cpp"
+      - path: include/mpg123/src/compat
+        includes:
+          - "compat.c"
+          - "compat_str.c"
+      - path: include/mpg123/src/libmpg123
+        includes:
+          - "dct64.c"
+          - "dither.c"
+          - "equalizer.c"
+          - "feature.c"
+          - "format.c"
+          - "frame.c"
+          - "icy.c"
+          - "icy2utf8.c"
+          - "id3.c"
+          - "index.c"
+          - "layer1.c"
+          - "layer2.c"
+          - "layer3.c"
+          - "lfs_wrap.c"
+          - "libmpg123.c"
+          - "ntom.c"
+          - "optimize.c"
+          - "parse.c"
+          - "readers.c"
+          - "stringbuf.c"
+          - "synth.c"
+          - "synth_8bit.c"
+          - "synth_real.c"
+          - "synth_s32.c"
+          - "tabinit.c"
+      - path: include/ogg/src
+        includes:
+          - "*.c"
+      - path: include/vorbis/lib
+        includes:
+          - "*.c"
+        excludes:
+          - "psytune.c"

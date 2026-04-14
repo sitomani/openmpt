@@ -965,3 +965,8 @@
 /test/test.saved.xm
 /unarchiver/*.d
 /unarchiver/*.o
+
+# iOS build artifacts
+*.xcodeproj
+*.xcframework
+.DS_store
